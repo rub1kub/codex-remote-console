@@ -1464,6 +1464,7 @@ textarea:focus {
 .modal-backdrop {
   position: fixed;
   inset: 0;
+  z-index: 120;
   display: grid;
   place-items: center;
   padding: 20px;
@@ -1583,6 +1584,7 @@ textarea:focus {
 .settings-backdrop {
   position: fixed;
   inset: 0;
+  z-index: 120;
   display: flex;
   justify-content: flex-end;
   background: rgba(22, 28, 24, 0.18);
