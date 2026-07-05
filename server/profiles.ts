@@ -15,6 +15,7 @@ const defaultUpdateCommand =
 
 const defaultPreferences: AppPreferences = {
   theme: "system",
+  interfaceStyle: "native",
   animations: true,
   compactMode: false,
   autoCheckUpdates: true,
@@ -24,6 +25,8 @@ const defaultPreferences: AppPreferences = {
   historyLimit: 80,
   defaultUpdateCommand
 };
+
+const interfaceStyles = ["native", "session-first", "calm-terminal"] as const;
 
 const dataDir =
   process.env.CODEX_REMOTE_CONSOLE_HOME ??
@@ -76,12 +79,16 @@ function validateTarget(target: string) {
 
 function normalizePreferences(input?: Partial<AppPreferences>): AppPreferences {
   const historyLimit = Number(input?.historyLimit);
+  const interfaceStyle = input?.interfaceStyle;
   return {
     ...defaultPreferences,
     ...input,
     theme: ["system", "light", "dark"].includes(input?.theme ?? "")
       ? input!.theme!
       : defaultPreferences.theme,
+    interfaceStyle: interfaceStyles.includes(interfaceStyle as AppPreferences["interfaceStyle"])
+      ? interfaceStyle as AppPreferences["interfaceStyle"]
+      : defaultPreferences.interfaceStyle,
     animations:
       typeof input?.animations === "boolean"
         ? input.animations

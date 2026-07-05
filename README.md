@@ -13,7 +13,7 @@
 - стримит ответы, команды и изменения файлов через JSON-RPC notifications;
 - поддерживает одноразовый SSH password input без сохранения пароля;
 - проверяет установленную/последнюю версию `codex-cli` и запускает обновление кнопкой;
-- имеет настройки темы, анимаций, истории, diagnostics и поведения composer;
+- имеет настройки темы, интерфейс-концепта, анимаций, истории, diagnostics и поведения composer;
 - по умолчанию повторяет привычный `codex --yolo`: `approvalPolicy=never`, `sandbox=danger-full-access`.
 
 ## Запуск
@@ -105,6 +105,14 @@ Default update command:
 ```bash
 CODEX_NON_INTERACTIVE=1 codex update || npm install -g @openai/codex@latest
 ```
+
+## Внешний вид
+
+В `Настройки -> Внешний вид` доступны три концепта интерфейса:
+
+- `Native`: максимально близко к спокойному Codex app shell.
+- `Sessions`: больше веса у истории и продолжения прошлых сессий.
+- `Terminal`: темный серверный sidebar и более инженерный рабочий ритм.
 
 ## Проверки
 

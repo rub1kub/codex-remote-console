@@ -51,6 +51,7 @@ export type ConnectionSecrets = {
 
 export type AppPreferences = {
   theme: "system" | "light" | "dark";
+  interfaceStyle: "native" | "session-first" | "calm-terminal";
   animations: boolean;
   compactMode: boolean;
   autoCheckUpdates: boolean;

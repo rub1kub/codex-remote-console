@@ -43,6 +43,7 @@ const defaultUpdateCommand =
 
 const defaultPreferences: AppPreferences = {
   theme: "system",
+  interfaceStyle: "native",
   animations: true,
   compactMode: false,
   autoCheckUpdates: true,
@@ -510,6 +511,7 @@ export default function App() {
   const rootClassName = [
     "app-shell",
     `theme-${preferences.theme}`,
+    `concept-${preferences.interfaceStyle}`,
     preferences.animations ? "motion-on" : "motion-off",
     preferences.compactMode ? "compact-mode" : ""
   ]
@@ -914,6 +916,29 @@ export default function App() {
                 <button className={preferences.theme === "system" ? "selected" : ""} onClick={() => void updatePreferences({ theme: "system" })}>
                   <Monitor size={15} />
                   Система
+                </button>
+              </div>
+              <div className="segmented-control concept-control">
+                <button
+                  className={preferences.interfaceStyle === "native" ? "selected" : ""}
+                  onClick={() => void updatePreferences({ interfaceStyle: "native" })}
+                >
+                  <Monitor size={15} />
+                  Native
+                </button>
+                <button
+                  className={preferences.interfaceStyle === "session-first" ? "selected" : ""}
+                  onClick={() => void updatePreferences({ interfaceStyle: "session-first" })}
+                >
+                  <History size={15} />
+                  Sessions
+                </button>
+                <button
+                  className={preferences.interfaceStyle === "calm-terminal" ? "selected" : ""}
+                  onClick={() => void updatePreferences({ interfaceStyle: "calm-terminal" })}
+                >
+                  <Terminal size={15} />
+                  Terminal
                 </button>
               </div>
               <label className="toggle-row">
