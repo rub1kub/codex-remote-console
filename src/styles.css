@@ -1928,7 +1928,15 @@ textarea:focus {
   color: #7a837d;
 }
 
-.theme-dark {
+.app-shell.theme-dark {
+  --app-bg: #111513;
+  --chat-bg: #111513;
+  --composer-bg: #111513;
+  --primary-bg: #e7ece8;
+  --primary-color: #111513;
+  --primary-hover-bg: #f4f8f5;
+  --sidebar-bg: #171d19;
+  --sidebar-border: #27302b;
   background: #111513;
   color: #e7ece8;
 }
@@ -2015,6 +2023,12 @@ textarea:focus {
   background: #151a17;
 }
 
+.theme-dark .composer textarea:disabled {
+  border-color: transparent;
+  background: #171d19;
+  color: #9aa69e;
+}
+
 .theme-dark .popover-section {
   border-color: #27302b;
 }
@@ -2037,6 +2051,10 @@ textarea:focus {
 .theme-dark .thread-context-menu button:hover {
   background: #202822;
   color: #edf3ef;
+}
+
+.theme-dark .composer-settings-control span:first-of-type {
+  color: #e0e6e2;
 }
 
 .theme-dark .thread-context-menu button.danger {
