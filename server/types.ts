@@ -25,6 +25,26 @@ export type ThreadMetadata = {
   pinned?: boolean;
 };
 
+export type DirectoryEntry = {
+  name: string;
+  path: string;
+};
+
+export type DirectoryListing = {
+  currentPath: string;
+  parentPath?: string;
+  entries: DirectoryEntry[];
+};
+
+export type DirectoryListInput = Partial<
+  Pick<
+    CodexProfile,
+    "mode" | "sshTarget" | "port" | "identityFile" | "projectPath"
+  >
+> & {
+  path?: string;
+};
+
 export type ProfileInput = Partial<
   Omit<CodexProfile, "id" | "createdAt" | "updatedAt">
 >;

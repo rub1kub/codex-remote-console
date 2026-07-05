@@ -1,9 +1,11 @@
 import {
+  ArrowLeft,
   ArrowUp,
   Check,
   Circle,
   Download,
   Folder,
+  FolderOpen,
   History,
   KeyRound,
   Loader2,
@@ -30,6 +32,7 @@ import type {
   CodexCliStatus,
   CodexProfile,
   CodexThread,
+  DirectoryListing,
   ServerMessage,
   ThreadMetadata,
   ThreadItem
@@ -76,14 +79,14 @@ const formatDate = (seconds: number) =>
   }).format(new Date(seconds * 1000));
 
 const titleOf = (thread?: CodexThread | null) =>
-  thread?.name || thread?.preview || "Новая сессия";
+  thread?.name || thread?.preview || "Новый чат";
 
 const serverKeyOf = (profile: CodexProfile) =>
   profile.mode === "local" ? "local" : profile.sshTarget;
 
 const serverLabelOf = (profile?: CodexProfile | null) => {
   if (!profile) return "Нет проекта";
-  return profile.mode === "local" ? "Local" : profile.sshTarget;
+  return profile.mode === "local" ? "Этот компьютер" : profile.sshTarget;
 };
 
 const basenameOf = (value: string) => {
@@ -97,6 +100,12 @@ const projectTitleOf = (profile?: CodexProfile | null) => {
   return profile.name && profile.name !== serverLabel
     ? profile.name
     : basenameOf(profile.projectPath);
+};
+
+const statusText: Record<ConnectionState, string> = {
+  idle: "Не подключено",
+  connecting: "Подключение",
+  connected: "Подключено"
 };
 
 function itemToMessage(item: ThreadItem): ChatMessage | null {
@@ -175,6 +184,9 @@ export default function App() {
   const [isProfileOpen, setProfileOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<CodexProfile | null>(null);
   const [draft, setDraft] = useState<ProfileDraft>(emptyDraft);
+  const [directoryListing, setDirectoryListing] = useState<DirectoryListing | null>(null);
+  const [directoryError, setDirectoryError] = useState("");
+  const [isDirectoryLoading, setDirectoryLoading] = useState(false);
   const [sessionPasswords, setSessionPasswords] = useState<Record<string, string>>({});
   const [threadMetadata, setThreadMetadata] = useState<Record<string, ThreadMetadata>>({});
   const [preferences, setPreferences] = useState<AppPreferences>(defaultPreferences);
@@ -302,6 +314,68 @@ export default function App() {
     const data = (await response.json()) as { preferences?: AppPreferences };
     if (data.preferences) {
       setPreferences({ ...defaultPreferences, ...data.preferences });
+    }
+  }
+
+  function resetDirectoryBrowser() {
+    setDirectoryListing(null);
+    setDirectoryError("");
+    setDirectoryLoading(false);
+  }
+
+  function updateDraft(patch: Partial<ProfileDraft>, resetBrowser = false) {
+    setDraft((current) => ({ ...current, ...patch }));
+    if (resetBrowser) {
+      resetDirectoryBrowser();
+    }
+  }
+
+  async function loadDirectories(pathOverride?: string) {
+    const targetPath = (pathOverride ?? draft.projectPath).trim() ||
+      (draft.mode === "local" ? "~" : "/var/www");
+
+    if (draft.mode === "ssh" && !draft.sshTarget.trim()) {
+      setDirectoryError("Сначала укажите сервер.");
+      return;
+    }
+
+    setDirectoryLoading(true);
+    setDirectoryError("");
+
+    try {
+      const response = await fetch("/api/directories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: draft.mode,
+          sshTarget: draft.sshTarget,
+          port: draft.port,
+          identityFile: draft.identityFile,
+          projectPath: draft.projectPath,
+          path: targetPath,
+          password: draft.password
+        })
+      });
+      const data = (await response.json()) as {
+        listing?: DirectoryListing;
+        error?: string;
+      };
+      if (!response.ok || !data.listing) {
+        throw new Error(data.error || "Не удалось открыть папку.");
+      }
+      setDirectoryListing(data.listing);
+      setDraft((current) => ({
+        ...current,
+        projectPath: data.listing!.currentPath
+      }));
+    } catch (directoryLoadError) {
+      setDirectoryError(
+        directoryLoadError instanceof Error
+          ? directoryLoadError.message
+          : "Не удалось открыть папку."
+      );
+    } finally {
+      setDirectoryLoading(false);
     }
   }
 
@@ -565,39 +639,39 @@ export default function App() {
 
   function openProfile(profile?: CodexProfile, template?: CodexProfile) {
     setEditingProfile(profile ?? null);
-    setDraft(
-      profile
+    const nextDraft = profile
+      ? {
+          name: profile.name,
+          mode: profile.mode,
+          sshTarget: profile.sshTarget,
+          port: profile.port,
+          identityFile: profile.identityFile,
+          projectPath: profile.projectPath,
+          codexBin: profile.codexBin,
+          model: profile.model,
+          updateCommand: profile.updateCommand,
+          approvalPolicy: profile.approvalPolicy,
+          sandboxMode: profile.sandboxMode,
+          password: sessionPasswords[profile.id] ?? ""
+        }
+      : template
         ? {
-            name: profile.name,
-            mode: profile.mode,
-            sshTarget: profile.sshTarget,
-            port: profile.port,
-            identityFile: profile.identityFile,
-            projectPath: profile.projectPath,
-            codexBin: profile.codexBin,
-            model: profile.model,
-            updateCommand: profile.updateCommand,
-            approvalPolicy: profile.approvalPolicy,
-            sandboxMode: profile.sandboxMode,
-            password: sessionPasswords[profile.id] ?? ""
+            ...emptyDraft,
+            mode: template.mode,
+            sshTarget: template.sshTarget,
+            port: template.port,
+            identityFile: template.identityFile,
+            projectPath: "",
+            codexBin: template.codexBin,
+            model: template.model,
+            updateCommand: template.updateCommand,
+            approvalPolicy: template.approvalPolicy,
+            sandboxMode: template.sandboxMode,
+            password: sessionPasswords[template.id] ?? ""
           }
-        : template
-          ? {
-              ...emptyDraft,
-              mode: template.mode,
-              sshTarget: template.sshTarget,
-              port: template.port,
-              identityFile: template.identityFile,
-              projectPath: "",
-              codexBin: template.codexBin,
-              model: template.model,
-              updateCommand: template.updateCommand,
-              approvalPolicy: template.approvalPolicy,
-              sandboxMode: template.sandboxMode,
-              password: sessionPasswords[template.id] ?? ""
-            }
-          : emptyDraft
-    );
+        : emptyDraft;
+    setDraft(nextDraft);
+    resetDirectoryBrowser();
     setProfileOpen(true);
   }
 
@@ -707,7 +781,7 @@ export default function App() {
             </div>
             <button
               className="connect-action"
-              onClick={connection === "connected" ? disconnect : connect}
+              onClick={!selectedProfileId ? () => openProfile() : connection === "connected" ? disconnect : connect}
               disabled={connection === "connecting"}
             >
               {connection === "connecting" ? (
@@ -717,7 +791,13 @@ export default function App() {
               ) : (
                 <Check size={15} />
               )}
-              {connection === "connected" ? "Stop" : "Connect"}
+              {!selectedProfileId
+                ? "Добавить"
+                : connection === "connected"
+                  ? "Отключить"
+                  : connection === "connecting"
+                    ? "Ждем"
+                    : "Подключить"}
             </button>
           </div>
         </section>
@@ -759,7 +839,7 @@ export default function App() {
               </section>
             ))}
             {profiles.length === 0 && (
-              <div className="empty-note">Добавьте проект: сервер + папка, например /var/www/site.com.</div>
+              <div className="empty-note">Проектов пока нет.</div>
             )}
           </div>
         </section>
@@ -781,7 +861,7 @@ export default function App() {
           <input
             value={search}
             onChange={(event) => refreshThreads(event.target.value)}
-            placeholder="Поиск сессий"
+            placeholder="Поиск чатов"
             autoComplete="off"
           />
         </div>
@@ -805,7 +885,7 @@ export default function App() {
         <header className="chat-header">
           <div>
             <h1>{titleOf(activeThread)}</h1>
-            <p>{selectedProfile?.projectPath || "Выберите сервер и директорию проекта"}</p>
+            <p>{selectedProfile?.projectPath || "Выберите сервер и папку проекта"}</p>
           </div>
           <div className="header-actions">
             <button className="icon-button" onClick={() => setSettingsOpen(true)} title="Настройки">
@@ -813,7 +893,7 @@ export default function App() {
             </button>
             <div className={`status-pill ${connection}`}>
               <Circle size={8} fill="currentColor" />
-              {connection === "connected" ? "Connected" : connection === "connecting" ? "Connecting" : "Idle"}
+              {statusText[connection]}
             </div>
           </div>
         </header>
@@ -831,14 +911,14 @@ export default function App() {
           {messages.length === 0 ? (
             <div className="welcome">
               <MessageSquare size={28} />
-              <h2>Открой сессию или напиши Codex</h2>
-              <p>История подтянется с сервера через app-server после подключения.</p>
+              <h2>Откройте чат или напишите Codex</h2>
+              <p>История появится после подключения.</p>
             </div>
           ) : (
             messages.map((message) => (
               <article key={message.id} className={`message ${message.role}`}>
                 <div className="message-avatar">
-                  {message.role === "tool" ? <Terminal size={15} /> : message.role === "user" ? "You" : "C"}
+                  {message.role === "tool" ? <Terminal size={15} /> : message.role === "user" ? "Вы" : "C"}
                 </div>
                 <div className="message-body">
                   {message.title && <strong>{message.title}</strong>}
@@ -854,7 +934,7 @@ export default function App() {
           <textarea
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder={connection === "connected" ? "Напиши задачу Codex..." : "Сначала подключись к серверу"}
+            placeholder={connection === "connected" ? "Напишите задачу Codex..." : "Сначала подключитесь к проекту"}
             disabled={connection !== "connected"}
             rows={1}
             onKeyDown={(event) => {
@@ -877,7 +957,7 @@ export default function App() {
 
         {preferences.showDiagnostics && logs.length > 0 && (
           <details className="diagnostics">
-            <summary>Diagnostics</summary>
+            <summary>Журнал</summary>
             {logs.map((line, index) => (
               <code key={`${line}-${index}`}>{line}</code>
             ))}
@@ -899,62 +979,68 @@ export default function App() {
               Название проекта
               <input
                 value={draft.name}
-                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                onChange={(event) => updateDraft({ name: event.target.value })}
                 placeholder="zavozik.xyz"
                 autoComplete="organization"
               />
             </label>
 
             <label>
-              Тип
+              Где работать
               <select
                 value={draft.mode}
-                onChange={(event) => setDraft({ ...draft, mode: event.target.value as ProfileDraft["mode"] })}
+                onChange={(event) => updateDraft(
+                  { mode: event.target.value as ProfileDraft["mode"] },
+                  true
+                )}
               >
-                <option value="ssh">SSH</option>
-                <option value="local">Local</option>
+                <option value="ssh">На сервере</option>
+                <option value="local">На этом компьютере</option>
               </select>
             </label>
 
             {draft.mode === "ssh" && (
               <>
                 <label>
-                  Сервер SSH
+                  Сервер
                   <input
                     value={draft.sshTarget}
-                    onChange={(event) => setDraft({ ...draft, sshTarget: event.target.value })}
-                    placeholder="devbox или ubuntu@host"
+                    onChange={(event) => updateDraft({ sshTarget: event.target.value }, true)}
+                    placeholder="root@94.156.112.224"
                     autoComplete="username"
                   />
                 </label>
                 <div className="two-fields">
                   <label>
-                    Port
+                    Порт
                     <input
                       value={draft.port ?? ""}
-                      onChange={(event) => setDraft({ ...draft, port: event.target.value ? Number(event.target.value) : undefined })}
+                      onChange={(event) => updateDraft(
+                        { port: event.target.value ? Number(event.target.value) : undefined },
+                        true
+                      )}
                       placeholder="22"
                       autoComplete="off"
                     />
                   </label>
                   <label>
-                    Identity file
+                    Ключ SSH
                     <input
                       value={draft.identityFile ?? ""}
-                      onChange={(event) => setDraft({ ...draft, identityFile: event.target.value })}
+                      onChange={(event) => updateDraft({ identityFile: event.target.value }, true)}
                       placeholder="~/.ssh/id_ed25519"
                       autoComplete="off"
                     />
                   </label>
                 </div>
                 <label>
-                  Password
+                  Пароль
                   <div className="password-field">
                     <KeyRound size={15} />
                     <input
                       type="password"
                       value={draft.password ?? ""}
-                      onChange={(event) => setDraft({ ...draft, password: event.target.value })}
+                      onChange={(event) => updateDraft({ password: event.target.value }, true)}
                       placeholder="не сохраняется"
                       autoComplete="current-password"
                     />
@@ -966,41 +1052,106 @@ export default function App() {
 
             <label>
               Папка проекта
-              <input
-                value={draft.projectPath}
-                onChange={(event) => setDraft({ ...draft, projectPath: event.target.value })}
-                placeholder="/var/www/zavozik.xyz"
-                autoComplete="off"
-                required
-              />
+              <div className="folder-picker">
+                <div className="folder-path-row">
+                  <input
+                    value={draft.projectPath}
+                    onChange={(event) => updateDraft({ projectPath: event.target.value })}
+                    placeholder="/var/www/zavozik.xyz"
+                    autoComplete="off"
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => void loadDirectories()}
+                    disabled={isDirectoryLoading}
+                  >
+                    {isDirectoryLoading ? <Loader2 size={15} className="spin" /> : <FolderOpen size={15} />}
+                    Открыть
+                  </button>
+                </div>
+
+                <div className="quick-paths">
+                  <button type="button" onClick={() => void loadDirectories("~")}>~</button>
+                  <button type="button" onClick={() => void loadDirectories("/var/www")}>/var/www</button>
+                  <button type="button" onClick={() => void loadDirectories("/home")}>/home</button>
+                </div>
+
+                {directoryError && <div className="folder-error">{directoryError}</div>}
+
+                <div className="folder-browser">
+                  <div className="folder-browser-head">
+                    <button
+                      type="button"
+                      onClick={() => directoryListing?.parentPath && void loadDirectories(directoryListing.parentPath)}
+                      disabled={!directoryListing?.parentPath || isDirectoryLoading}
+                      title="На уровень выше"
+                    >
+                      <ArrowLeft size={14} />
+                    </button>
+                    <span>{directoryListing?.currentPath || "Выберите папку"}</span>
+                    <button
+                      type="button"
+                      onClick={() => void loadDirectories(directoryListing?.currentPath)}
+                      disabled={!directoryListing || isDirectoryLoading}
+                      title="Обновить"
+                    >
+                      <RefreshCw size={14} className={isDirectoryLoading ? "spin" : ""} />
+                    </button>
+                  </div>
+
+                  <div className="folder-list">
+                    {directoryListing ? (
+                      directoryListing.entries.length > 0 ? (
+                        directoryListing.entries.map((entry) => (
+                          <button
+                            key={entry.path}
+                            type="button"
+                            className="folder-row"
+                            onClick={() => void loadDirectories(entry.path)}
+                          >
+                            <Folder size={15} />
+                            <span>{entry.name}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="folder-empty">Подпапок нет. Можно сохранить эту папку.</div>
+                      )
+                    ) : (
+                      <div className="folder-empty">Нажмите «Открыть», чтобы увидеть папки.</div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </label>
 
             <div className="two-fields">
               <label>
-                Codex binary
+                Команда Codex
                 <input
                   value={draft.codexBin}
-                  onChange={(event) => setDraft({ ...draft, codexBin: event.target.value })}
+                  onChange={(event) => updateDraft({ codexBin: event.target.value })}
                   placeholder="codex"
                   autoComplete="off"
                 />
               </label>
               <label>
-                Model
+                Модель
                 <input
                   value={draft.model ?? ""}
-                  onChange={(event) => setDraft({ ...draft, model: event.target.value })}
-                  placeholder="default"
+                  onChange={(event) => updateDraft({ model: event.target.value })}
+                  placeholder="по умолчанию"
                   autoComplete="off"
                 />
               </label>
             </div>
 
             <label>
-              Codex update command
+              Команда обновления Codex
               <input
                 value={draft.updateCommand ?? ""}
-                onChange={(event) => setDraft({ ...draft, updateCommand: event.target.value })}
+                onChange={(event) => updateDraft({ updateCommand: event.target.value })}
                 placeholder={preferences.defaultUpdateCommand}
                 autoComplete="off"
               />
@@ -1008,26 +1159,26 @@ export default function App() {
 
             <div className="two-fields">
               <label>
-                Approval
+                Подтверждения
                 <select
                   value={draft.approvalPolicy}
-                  onChange={(event) => setDraft({ ...draft, approvalPolicy: event.target.value as ProfileDraft["approvalPolicy"] })}
+                  onChange={(event) => updateDraft({ approvalPolicy: event.target.value as ProfileDraft["approvalPolicy"] })}
                 >
-                  <option value="never">never</option>
-                  <option value="on-request">on-request</option>
-                  <option value="on-failure">on-failure</option>
-                  <option value="untrusted">untrusted</option>
+                  <option value="never">не спрашивать</option>
+                  <option value="on-request">спрашивать при необходимости</option>
+                  <option value="on-failure">спрашивать после ошибки</option>
+                  <option value="untrusted">строгий режим</option>
                 </select>
               </label>
               <label>
-                Sandbox
+                Доступ к файлам
                 <select
                   value={draft.sandboxMode}
-                  onChange={(event) => setDraft({ ...draft, sandboxMode: event.target.value as ProfileDraft["sandboxMode"] })}
+                  onChange={(event) => updateDraft({ sandboxMode: event.target.value as ProfileDraft["sandboxMode"] })}
                 >
-                  <option value="danger-full-access">danger-full-access</option>
-                  <option value="workspace-write">workspace-write</option>
-                  <option value="read-only">read-only</option>
+                  <option value="danger-full-access">полный доступ</option>
+                  <option value="workspace-write">запись в проекте</option>
+                  <option value="read-only">только чтение</option>
                 </select>
               </label>
             </div>
@@ -1058,7 +1209,7 @@ export default function App() {
             <div className="modal-head">
               <div>
                 <h2>Настройки</h2>
-                <p>Поведение приложения и Codex CLI</p>
+                <p>Поведение приложения и Codex</p>
               </div>
               <button type="button" className="icon-button" onClick={() => setSettingsOpen(false)}>
                 <X size={16} />
@@ -1066,14 +1217,14 @@ export default function App() {
             </div>
 
             <section className="settings-section">
-              <h3>Codex CLI</h3>
+              <h3>Codex</h3>
               <div className="cli-status-card">
                 <div>
                   <span>Версия</span>
                   <strong>{cliStatus?.installed || "не проверено"}</strong>
                 </div>
                 <div>
-                  <span>Latest</span>
+                  <span>Новая версия</span>
                   <strong>{cliStatus?.latest || "-"}</strong>
                 </div>
                 <button className="secondary-button" onClick={checkCodexCli} disabled={!selectedProfileId || isCliWorking}>
@@ -1129,21 +1280,21 @@ export default function App() {
                   onClick={() => void updatePreferences({ interfaceStyle: "native" })}
                 >
                   <Monitor size={15} />
-                  Native
+                  Обычный
                 </button>
                 <button
                   className={preferences.interfaceStyle === "session-first" ? "selected" : ""}
                   onClick={() => void updatePreferences({ interfaceStyle: "session-first" })}
                 >
                   <History size={15} />
-                  Sessions
+                  Чаты
                 </button>
                 <button
                   className={preferences.interfaceStyle === "calm-terminal" ? "selected" : ""}
                   onClick={() => void updatePreferences({ interfaceStyle: "calm-terminal" })}
                 >
                   <Terminal size={15} />
-                  Terminal
+                  Терминал
                 </button>
               </div>
               <label className="toggle-row">
@@ -1183,7 +1334,7 @@ export default function App() {
                 />
               </label>
               <label className="toggle-row">
-                <span>Показывать diagnostics</span>
+                <span>Показывать журнал</span>
                 <input
                   type="checkbox"
                   checked={preferences.showDiagnostics}

@@ -36,6 +36,17 @@ export type ThreadMetadata = {
   pinned?: boolean;
 };
 
+export type DirectoryEntry = {
+  name: string;
+  path: string;
+};
+
+export type DirectoryListing = {
+  currentPath: string;
+  parentPath?: string;
+  entries: DirectoryEntry[];
+};
+
 export type CodexCliStatus = {
   installed: string;
   latest: string;

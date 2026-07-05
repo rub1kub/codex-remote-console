@@ -14,7 +14,7 @@ import {
   savePreferences,
   saveProfile
 } from "./profiles";
-import { checkCodexCli, updateCodexCli } from "./remoteExec";
+import { checkCodexCli, listDirectories, updateCodexCli } from "./remoteExec";
 
 type StartServerOptions = {
   host?: string;
@@ -88,6 +88,19 @@ export async function startServer(
     try {
       response.json({
         metadata: await saveThreadMetadata(request.params.threadId, request.body ?? {})
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/directories", async (request, response, next) => {
+    try {
+      const { password, ...input } = request.body ?? {};
+      response.json({
+        listing: await listDirectories(input, {
+          password: typeof password === "string" ? password : undefined
+        })
       });
     } catch (error) {
       next(error);

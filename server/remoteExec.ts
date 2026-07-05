@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { readdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Client } from "ssh2";
@@ -6,7 +7,9 @@ import { Client } from "ssh2";
 import type {
   AppPreferences,
   CodexProfile,
-  ConnectionSecrets
+  ConnectionSecrets,
+  DirectoryListInput,
+  DirectoryListing
 } from "./types";
 
 type CommandResult = {
@@ -92,6 +95,109 @@ function parseKeyValue(stdout: string) {
     }
     return acc;
   }, {});
+}
+
+function cleanText(value: unknown, fallback = "") {
+  return typeof value === "string" ? value.trim() : fallback;
+}
+
+function validateTarget(target: string) {
+  if (/[\r\n\t ]/.test(target)) {
+    throw new Error("Укажите один SSH сервер, например user@host.");
+  }
+}
+
+function normalizeBrowsePath(value: unknown, mode: CodexProfile["mode"]) {
+  const cleaned = cleanText(value);
+  if (cleaned) return cleaned;
+  return mode === "local" ? os.homedir() : "~";
+}
+
+function parentOf(currentPath: string, mode: CodexProfile["mode"]) {
+  const parent = mode === "local"
+    ? path.dirname(currentPath)
+    : path.posix.dirname(currentPath);
+  return parent && parent !== currentPath ? parent : undefined;
+}
+
+function joinRemotePath(parent: string, name: string) {
+  if (parent === "/") return `/${name}`;
+  return `${parent.replace(/\/+$/, "")}/${name}`;
+}
+
+function buildDirectoryProbeProfile(input: DirectoryListInput): CodexProfile {
+  const mode = input.mode === "local" ? "local" : "ssh";
+  const sshTarget = cleanText(input.sshTarget);
+  if (mode === "ssh") {
+    if (!sshTarget) throw new Error("Укажите сервер.");
+    validateTarget(sshTarget);
+  }
+
+  return {
+    id: "directory-browser",
+    name: "directory-browser",
+    mode,
+    sshTarget,
+    port: input.port,
+    identityFile: cleanText(input.identityFile),
+    projectPath: normalizeBrowsePath(input.path ?? input.projectPath, mode),
+    codexBin: "codex",
+    approvalPolicy: "never",
+    sandboxMode: "read-only",
+    createdAt: "",
+    updatedAt: ""
+  };
+}
+
+async function listLocalDirectories(
+  profile: CodexProfile
+): Promise<DirectoryListing> {
+  const currentPath = expandLocalPath(profile.projectPath);
+  const entries = await readdir(currentPath, { withFileTypes: true });
+  return {
+    currentPath,
+    parentPath: parentOf(currentPath, "local"),
+    entries: entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => ({
+        name: entry.name,
+        path: path.join(currentPath, entry.name)
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name))
+  };
+}
+
+const directoryListCommand = [
+  'CURRENT="$(pwd -P)"',
+  'printf "cwd=%s\\n" "$CURRENT"',
+  'for entry in "$CURRENT"/* "$CURRENT"/.[!.]* "$CURRENT"/..?*; do [ -d "$entry" ] || continue; name="${entry##*/}"; if [ "$name" = "." ] || [ "$name" = ".." ]; then continue; fi; printf "dir=%s\\n" "$name"; done | LC_ALL=C sort'
+].join("; ");
+
+function parseRemoteDirectoryListing(stdout: string): DirectoryListing {
+  let currentPath = "";
+  const names: string[] = [];
+
+  stdout.split(/\r?\n/).forEach((line) => {
+    if (line.startsWith("cwd=")) {
+      currentPath = line.slice(4);
+    } else if (line.startsWith("dir=")) {
+      const name = line.slice(4);
+      if (name) names.push(name);
+    }
+  });
+
+  if (!currentPath) {
+    throw new Error("Сервер не вернул текущую папку.");
+  }
+
+  return {
+    currentPath,
+    parentPath: parentOf(currentPath, "ssh"),
+    entries: names.map((name) => ({
+      name,
+      path: joinRemotePath(currentPath, name)
+    }))
+  };
 }
 
 function runLocalCommand(profile: CodexProfile, command: string) {
@@ -235,6 +341,22 @@ export function runProfileCommand(
     return runSsh2Command(profile, secrets, command);
   }
   return runSystemSshCommand(profile, command);
+}
+
+export async function listDirectories(
+  input: DirectoryListInput,
+  secrets: ConnectionSecrets = {}
+): Promise<DirectoryListing> {
+  const profile = buildDirectoryProbeProfile(input);
+  if (profile.mode === "local") {
+    return listLocalDirectories(profile);
+  }
+
+  const result = await runProfileCommand(profile, secrets, directoryListCommand);
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.trim() || `Не удалось открыть ${profile.projectPath}.`);
+  }
+  return parseRemoteDirectoryListing(result.stdout);
 }
 
 export async function checkCodexCli(
