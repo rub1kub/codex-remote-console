@@ -454,10 +454,9 @@ export default function App() {
   );
   const selectedModelValue = selectedProfile?.model ?? "";
   const selectedModelOption = modelOptions.find((option) => option.value === selectedModelValue);
-  const selectedModelLabel =
-    selectedModelOption?.shortLabel ||
-    selectedModelValue.replace(/^gpt-/, "") ||
-    "модель";
+  const selectedModelLabel = selectedModelValue
+    ? selectedModelOption?.shortLabel || selectedModelValue.replace(/^gpt-/, "")
+    : "";
   const selectedReasoningOption = reasoningOptions.find(
     (option) => option.value === preferences.reasoningLevel
   );
@@ -1438,7 +1437,7 @@ export default function App() {
                     title="Модель и режим ответа"
                   >
                     <Gauge size={14} />
-                    <span>{selectedModelLabel}</span>
+                    {selectedModelLabel && <span>{selectedModelLabel}</span>}
                     <span>{selectedReasoningLabel}</span>
                     <ChevronDown size={13} />
                   </button>
