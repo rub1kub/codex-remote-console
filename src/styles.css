@@ -1932,6 +1932,83 @@ textarea:focus {
   font-weight: 650;
 }
 
+.about-section {
+  gap: 10px;
+}
+
+.about-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #168a75;
+}
+
+.about-title h3 {
+  margin: 0;
+}
+
+.about-section p {
+  margin: 0;
+  color: #5f6a63;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.about-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.about-grid > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #dfe5df;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.about-grid span {
+  color: #7a837d;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.about-grid strong {
+  overflow: hidden;
+  color: #26302a;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.about-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.about-links a {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid #cce6df;
+  border-radius: 8px;
+  background: #f2fbf8;
+  color: #13735f;
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.about-links a:hover {
+  border-color: #9bd5c9;
+  background: #e8f7f3;
+}
+
 .toggle-row {
   grid-template-columns: 1fr auto;
   align-items: center;
@@ -2429,6 +2506,7 @@ textarea:focus {
 .theme-dark .settings-section h3,
 .theme-dark .cli-status-card strong,
 .theme-dark .monitor-grid strong,
+.theme-dark .about-grid strong,
 .theme-dark .command-item strong,
 .theme-dark .thread-main span {
   color: #edf3ef;
@@ -2443,7 +2521,9 @@ textarea:focus {
 .theme-dark .thread-row small,
 .theme-dark .command-item small,
 .theme-dark .monitor-grid span,
+.theme-dark .about-grid span,
 .theme-dark .monitor-log,
+.theme-dark .about-section p,
 .theme-dark .empty-note,
 .theme-dark .welcome p,
 .theme-dark .thread-loading-state p,
@@ -2474,6 +2554,7 @@ textarea:focus {
 .theme-dark .segmented-control button,
 .theme-dark .cli-status-card > div,
 .theme-dark .monitor-grid > div,
+.theme-dark .about-grid > div,
 .theme-dark .monitor-log,
 .theme-dark .command-search,
 .theme-dark .command-icon,
@@ -2630,6 +2711,21 @@ textarea:focus {
 .theme-dark .thread-row.pinned .thread-action[aria-pressed="true"] {
   background: #22332d;
   color: #95eadb;
+}
+
+.theme-dark .about-title {
+  color: #95eadb;
+}
+
+.theme-dark .about-links a {
+  border-color: #24433a;
+  background: #152720;
+  color: #95eadb;
+}
+
+.theme-dark .about-links a:hover {
+  border-color: #2f6c5f;
+  background: #18362e;
 }
 
 .theme-dark .primary-button,

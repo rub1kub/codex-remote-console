@@ -1,7 +1,7 @@
 {
   "name": "codex-remote-console",
   "version": "0.1.0",
-  "description": "Minimal desktop UI for remote Codex CLI sessions over SSH.",
+  "description": "Desktop app for remote Codex CLI sessions over SSH with project history, folder picker, chat UI, and packaged builds for macOS, Windows, and Linux.",
   "desktopName": "Codex Remote",
   "author": "rub1kub",
   "private": true,

@@ -8,6 +8,10 @@ process.env.CODEX_REMOTE_NO_AUTOSTART = "1";
 let serverHandle;
 let mainWindow;
 
+const appDescription =
+  "Desktop app for remote Codex CLI sessions over SSH with project history, folder picker, chat UI, and packaged builds for macOS, Windows, and Linux.";
+const repoUrl = "https://github.com/rub1kub/codex-remote-console";
+
 function getWindowIconPath() {
   return app.isPackaged
     ? path.join(process.resourcesPath, "icon.png")
@@ -75,6 +79,19 @@ function createMenu() {
         { role: "zoomIn" },
         { role: "zoomOut" }
       ]
+    },
+    {
+      label: "Справка",
+      submenu: [
+        {
+          label: "О приложении",
+          click: () => app.showAboutPanel()
+        },
+        {
+          label: "GitHub",
+          click: () => shell.openExternal(repoUrl)
+        }
+      ]
     }
   ];
 
@@ -122,6 +139,12 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  app.setAboutPanelOptions({
+    applicationName: "Codex Remote",
+    applicationVersion: app.getVersion(),
+    copyright: "© 2026 rub1kub",
+    credits: `${appDescription}\n\nGitHub: ${repoUrl}`
+  });
   createMenu();
   await createWindow();
 

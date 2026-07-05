@@ -1412,6 +1412,8 @@ export default function App() {
   const portalClassName = rootClassName.replace("app-shell", "app-portal");
   const lastLogLine = logs[0] || "нет событий";
   const appVersion = "0.1.0";
+  const repoUrl = "https://github.com/rub1kub/codex-remote-console";
+  const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
     () => [
       {
@@ -2475,6 +2477,39 @@ export default function App() {
               <div className="monitor-log">
                 <Terminal size={14} />
                 <span>{lastLogLine}</span>
+              </div>
+            </section>
+
+            <section className="settings-section about-section">
+              <div className="about-title">
+                <FileText size={16} />
+                <h3>О приложении</h3>
+              </div>
+              <p>
+                Codex Remote — настольное приложение для работы с Codex CLI на удаленных серверах без ручного
+                входа по SSH, перехода в папку проекта и запуска терминального `codex --yolo`.
+              </p>
+              <div className="about-grid">
+                <div>
+                  <span>Версия</span>
+                  <strong>{appVersion}</strong>
+                </div>
+                <div>
+                  <span>Платформы</span>
+                  <strong>macOS, Windows, Linux</strong>
+                </div>
+                <div>
+                  <span>Формат</span>
+                  <strong>Electron + app-server</strong>
+                </div>
+                <div>
+                  <span>Автор</span>
+                  <strong>rub1kub</strong>
+                </div>
+              </div>
+              <div className="about-links">
+                <a href={releaseUrl} target="_blank" rel="noreferrer">Релиз {appVersion}</a>
+                <a href={repoUrl} target="_blank" rel="noreferrer">GitHub</a>
               </div>
             </section>
 
