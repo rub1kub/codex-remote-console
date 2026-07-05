@@ -1,12 +1,15 @@
 import {
   ArrowLeft,
   ArrowUp,
+  Brain,
   ChevronDown,
   ChevronRight,
+  Check,
   Circle,
   Download,
   Folder,
   FolderOpen,
+  Gauge,
   History,
   KeyRound,
   Loader2,
@@ -25,9 +28,10 @@ import {
   Sun,
   Terminal,
   Trash2,
-  X
+  X,
+  Zap
 } from "lucide-react";
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   AppPreferences,
@@ -52,6 +56,8 @@ const defaultUpdateCommand =
 const defaultPreferences: AppPreferences = {
   theme: "system",
   interfaceStyle: "native",
+  reasoningLevel: "very-high",
+  responseSpeed: "standard",
   animations: true,
   compactMode: false,
   autoCheckUpdates: true,
@@ -74,11 +80,31 @@ const emptyDraft: ProfileDraft = {
 };
 
 const modelOptions = [
-  { value: "", label: "по умолчанию" },
-  { value: "gpt-5.5", label: "gpt-5.5" },
-  { value: "gpt-5.4", label: "gpt-5.4" },
-  { value: "gpt-5.4-mini", label: "gpt-5.4-mini" },
-  { value: "gpt-5.3-codex-spark", label: "gpt-5.3-codex-spark" }
+  { value: "", label: "по умолчанию", shortLabel: "модель" },
+  { value: "gpt-5.5", label: "GPT-5.5", shortLabel: "5.5" },
+  { value: "gpt-5.4", label: "GPT-5.4", shortLabel: "5.4" },
+  { value: "gpt-5.4-mini", label: "GPT-5.4 mini", shortLabel: "5.4 mini" },
+  { value: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", shortLabel: "Spark" }
+];
+
+const reasoningOptions: Array<{
+  value: AppPreferences["reasoningLevel"];
+  label: string;
+  shortLabel: string;
+}> = [
+  { value: "low", label: "Низкий", shortLabel: "низкий" },
+  { value: "medium", label: "Средний", shortLabel: "средний" },
+  { value: "high", label: "Высокий", shortLabel: "высокий" },
+  { value: "very-high", label: "Очень высокий", shortLabel: "очень высокий" }
+];
+
+const speedOptions: Array<{
+  value: AppPreferences["responseSpeed"];
+  label: string;
+  description: string;
+}> = [
+  { value: "standard", label: "Стандартно", description: "Обычная скорость" },
+  { value: "fast", label: "Быстро", description: "Быстрее, расход выше" }
 ];
 
 const formatDate = (seconds: number) =>
@@ -265,32 +291,64 @@ function displayTitleOf(thread: CodexThread | null | undefined, metadata?: Threa
   return metadata?.title || titleOf(thread);
 }
 
-function splitMessages(messages: ChatMessage[]) {
+type MessageDisplayItem =
+  | { type: "message"; message: ChatMessage }
+  | { type: "steps"; id: string; messages: ChatMessage[] };
+
+function buildStepGroupId(messages: ChatMessage[]) {
+  return `steps-${messages[0]?.id ?? "empty"}-${messages[messages.length - 1]?.id ?? "empty"}`;
+}
+
+function collapseAssistantSegment(segment: ChatMessage[]): MessageDisplayItem[] {
+  if (segment.length <= 1) {
+    return segment.map((message): MessageDisplayItem => ({ type: "message", message }));
+  }
+
   let finalAssistantIndex = -1;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index].role === "assistant" && messages[index].text.trim()) {
+  for (let index = segment.length - 1; index >= 0; index -= 1) {
+    if (segment[index].role === "assistant" && segment[index].text.trim()) {
       finalAssistantIndex = index;
       break;
     }
   }
 
   if (finalAssistantIndex <= 0) {
-    return { collapsed: [], visible: messages };
+    return segment.map((message): MessageDisplayItem => ({ type: "message", message }));
   }
 
-  const collapsed = messages.filter(
-    (message, index) => index < finalAssistantIndex && message.role !== "user"
-  );
+  const collapsed = segment.slice(0, finalAssistantIndex);
   if (collapsed.length === 0) {
-    return { collapsed: [], visible: messages };
+    return segment.map((message): MessageDisplayItem => ({ type: "message", message }));
   }
 
-  return {
-    collapsed,
-    visible: messages.filter(
-      (message, index) => message.role === "user" || index >= finalAssistantIndex
-    )
+  return [
+    { type: "steps", id: buildStepGroupId(collapsed), messages: collapsed },
+    ...segment.slice(finalAssistantIndex).map((message): MessageDisplayItem => ({ type: "message", message }))
+  ];
+}
+
+function buildMessageDisplay(messages: ChatMessage[]): MessageDisplayItem[] {
+  const items: MessageDisplayItem[] = [];
+  let assistantSegment: ChatMessage[] = [];
+
+  const flushAssistantSegment = () => {
+    if (assistantSegment.length > 0) {
+      items.push(...collapseAssistantSegment(assistantSegment));
+      assistantSegment = [];
+    }
   };
+
+  messages.forEach((message) => {
+    if (message.role === "user") {
+      flushAssistantSegment();
+      items.push({ type: "message", message });
+      return;
+    }
+    assistantSegment.push(message);
+  });
+
+  flushAssistantSegment();
+  return items;
 }
 
 function previewText(text: string) {
@@ -324,7 +382,13 @@ export default function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [isBusy, setBusy] = useState(false);
   const [loadingThreadId, setLoadingThreadId] = useState("");
-  const [isStepsOpen, setStepsOpen] = useState(false);
+  const [openStepGroups, setOpenStepGroups] = useState<Record<string, boolean>>({});
+  const [threadMenu, setThreadMenu] = useState<{
+    thread: CodexThread;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [composerMenu, setComposerMenu] = useState<"reasoning" | "speed" | "model" | null>(null);
   const [renamingThread, setRenamingThread] = useState<CodexThread | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deletingThread, setDeletingThread] = useState<CodexThread | null>(null);
@@ -382,12 +446,23 @@ export default function App() {
     [sortedThreads, threadMetadata]
   );
 
-  const messageGroups = useMemo(() => splitMessages(messages), [messages]);
+  const messageDisplay = useMemo(() => buildMessageDisplay(messages), [messages]);
 
   const activeThreadTitle = displayTitleOf(
     activeThread,
     activeThread ? threadMetadata[activeThread.id] : undefined
   );
+  const selectedModelValue = selectedProfile?.model ?? "";
+  const selectedModelLabel =
+    modelOptions.find((option) => option.value === selectedModelValue)?.shortLabel ||
+    selectedModelValue.replace(/^gpt-/, "") ||
+    "модель";
+  const selectedReasoningLabel =
+    reasoningOptions.find((option) => option.value === preferences.reasoningLevel)?.shortLabel ||
+    "ум";
+  const selectedSpeedLabel =
+    speedOptions.find((option) => option.value === preferences.responseSpeed)?.label ||
+    "скорость";
 
   useEffect(() => {
     void loadProfiles();
@@ -406,6 +481,25 @@ export default function App() {
   useEffect(() => {
     searchRef.current = search;
   }, [search]);
+
+  useEffect(() => {
+    const closeTransientMenus = () => {
+      setThreadMenu(null);
+      setComposerMenu(null);
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeTransientMenus();
+      }
+    };
+
+    window.addEventListener("click", closeTransientMenus);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("click", closeTransientMenus);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -575,7 +669,7 @@ export default function App() {
       setActiveThread(message.result.thread);
       setMessages(threadToMessages(message.result.thread));
       setLoadingThreadId("");
-      setStepsOpen(false);
+      setOpenStepGroups({});
       setBusy(false);
       setThreads((current) => {
         const exists = current.some((thread) => thread.id === message.result.thread.id);
@@ -697,7 +791,7 @@ export default function App() {
     setThreads([]);
     setBusy(false);
     setLoadingThreadId("");
-    setStepsOpen(false);
+    setOpenStepGroups({});
     setConnection("connecting");
     send({
       type: "connect",
@@ -720,6 +814,61 @@ export default function App() {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     runProject(profileId);
+  }
+
+  function openThreadContextMenu(event: MouseEvent, thread: CodexThread) {
+    event.preventDefault();
+    const menuWidth = 220;
+    const menuHeight = 142;
+    setThreadMenu({
+      thread,
+      x: Math.min(event.clientX, window.innerWidth - menuWidth - 8),
+      y: Math.min(event.clientY, window.innerHeight - menuHeight - 8)
+    });
+  }
+
+  function toggleComposerMenu(
+    event: MouseEvent,
+    nextMenu: "reasoning" | "speed" | "model"
+  ) {
+    event.stopPropagation();
+    setComposerMenu((current) => (current === nextMenu ? null : nextMenu));
+  }
+
+  async function updateSelectedModel(model: string) {
+    if (!selectedProfile) {
+      setProfileOpen(true);
+      return;
+    }
+
+    const previousProfiles = profiles;
+    const nextModel = model || undefined;
+    setComposerMenu(null);
+    setProfiles((current) =>
+      current.map((profile) =>
+        profile.id === selectedProfile.id
+          ? { ...profile, model: nextModel, updatedAt: new Date().toISOString() }
+          : profile
+      )
+    );
+
+    try {
+      const response = await fetch(`/api/profiles/${selectedProfile.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: nextModel })
+      });
+      const data = (await response.json()) as { profile?: CodexProfile; error?: string };
+      if (!response.ok || !data.profile) {
+        throw new Error(data.error || "Не удалось переключить модель.");
+      }
+      setProfiles((current) =>
+        current.map((profile) => (profile.id === data.profile!.id ? data.profile! : profile))
+      );
+    } catch (modelError) {
+      setProfiles(previousProfiles);
+      setError(modelError instanceof Error ? modelError.message : "Не удалось переключить модель.");
+    }
   }
 
   function checkCodexCli() {
@@ -759,7 +908,7 @@ export default function App() {
     setActiveThread(thread);
     setMessages([]);
     setLoadingThreadId(thread.id);
-    setStepsOpen(false);
+    setOpenStepGroups({});
     send({ type: "readThread", threadId: thread.id });
   }
 
@@ -767,7 +916,7 @@ export default function App() {
     setActiveThread(null);
     setMessages([]);
     setLoadingThreadId("");
-    setStepsOpen(false);
+    setOpenStepGroups({});
     send({ type: "newThread" });
   }
 
@@ -877,7 +1026,7 @@ export default function App() {
       setActiveThread(null);
       setMessages([]);
       setLoadingThreadId("");
-      setStepsOpen(false);
+      setOpenStepGroups({});
     }
 
     try {
@@ -1015,6 +1164,8 @@ export default function App() {
       <div
         key={thread.id}
         className={`thread-row ${activeThread?.id === thread.id ? "active" : ""} ${pinned ? "pinned" : ""}`}
+        onContextMenu={(event) => openThreadContextMenu(event, thread)}
+        title="ПКМ: меню чата"
       >
         <button className="thread-main" onClick={() => selectThread(thread)} disabled={isDeleting}>
           <span>{threadTitle}</span>
@@ -1022,24 +1173,6 @@ export default function App() {
         </button>
         <div className="thread-actions">
           {isThreadLoading && <Loader2 size={14} className="thread-loading spin" aria-hidden="true" />}
-          <button
-            className="thread-action"
-            onClick={() => openRenameThread(thread)}
-            title="Переименовать чат"
-            aria-label="Переименовать чат"
-            disabled={isDeleting}
-          >
-            <Pencil size={13} />
-          </button>
-          <button
-            className="thread-action danger"
-            onClick={() => setDeletingThread(thread)}
-            title="Удалить чат"
-            aria-label="Удалить чат"
-            disabled={isDeleting}
-          >
-            <Trash2 size={13} />
-          </button>
           <button
             className="thread-action"
             onClick={() => void togglePin(thread)}
@@ -1134,8 +1267,7 @@ export default function App() {
                           title="Отключить проект"
                           aria-label="Отключить проект"
                         >
-                          <Power size={13} />
-                          Отключить
+                          <Power size={14} />
                         </button>
                       )}
                     </div>
@@ -1188,7 +1320,7 @@ export default function App() {
 
       <section className="chat">
         <header className="chat-header">
-          <div>
+          <div className="chat-title">
             <h1>{activeThreadTitle}</h1>
             <p>{selectedProfile?.projectPath || "Выберите сервер и папку проекта"}</p>
           </div>
@@ -1227,68 +1359,184 @@ export default function App() {
             </div>
           ) : (
             <>
-              {messageGroups.collapsed.length > 0 && (
-                <section className={`steps-summary ${isStepsOpen ? "open" : ""}`}>
-                  <button type="button" className="steps-toggle" onClick={() => setStepsOpen((current) => !current)}>
-                    {isStepsOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                    <span>Ход работы</span>
-                    <small>{messageGroups.collapsed.length}</small>
-                  </button>
-                  {isStepsOpen && (
-                    <div className="steps-list">
-                      {messageGroups.collapsed.map((message) => (
-                        <article key={message.id} className={`step-item ${message.role}`}>
-                          <span>{message.title || messageRoleLabel[message.role]}</span>
-                          <p>{previewText(message.text) || "Без текста"}</p>
-                        </article>
-                      ))}
-                    </div>
-                  )}
-                </section>
-              )}
+              {messageDisplay.map((item) => {
+                if (item.type === "steps") {
+                  const isOpen = Boolean(openStepGroups[item.id]);
+                  return (
+                    <section key={item.id} className={`steps-summary ${isOpen ? "open" : ""}`}>
+                      <button
+                        type="button"
+                        className="steps-toggle"
+                        onClick={() =>
+                          setOpenStepGroups((current) => ({
+                            ...current,
+                            [item.id]: !current[item.id]
+                          }))
+                        }
+                      >
+                        {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                        <span>Ход работы</span>
+                        <small>{item.messages.length}</small>
+                      </button>
+                      {isOpen && (
+                        <div className="steps-list">
+                          {item.messages.map((message) => (
+                            <article key={message.id} className={`step-item ${message.role}`}>
+                              <span>{message.title || messageRoleLabel[message.role]}</span>
+                              <p>{previewText(message.text) || "Без текста"}</p>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  );
+                }
 
-              {messageGroups.visible.map((message) => (
-                <article key={message.id} className={`message ${message.role}`}>
-                  <div className="message-avatar">
-                    {message.role === "tool" ? <Terminal size={15} /> : messageAvatarLabel[message.role]}
-                  </div>
-                  <div className="message-body">
-                    <div className="message-head">
-                      <span className="message-author">{messageRoleLabel[message.role]}</span>
-                      {message.title && <span className="message-title">{message.title}</span>}
+                const { message } = item;
+                return (
+                  <article key={message.id} className={`message ${message.role}`}>
+                    <div className="message-avatar">
+                      {message.role === "tool" ? <Terminal size={15} /> : messageAvatarLabel[message.role]}
                     </div>
-                    <div className="message-content">{renderTextBlocks(message)}</div>
-                  </div>
-                </article>
-              ))}
+                    <div className="message-body">
+                      <div className="message-head">
+                        <span className="message-author">{messageRoleLabel[message.role]}</span>
+                        {message.title && <span className="message-title">{message.title}</span>}
+                      </div>
+                      <div className="message-content">{renderTextBlocks(message)}</div>
+                    </div>
+                  </article>
+                );
+              })}
             </>
           )}
           {!loadingThreadId && messages.length > 0 && <div ref={endRef} />}
         </div>
 
         <form className="composer" onSubmit={submit}>
-          <textarea
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder={connection === "connected" ? "Напишите задачу Codex..." : "Сначала подключитесь к проекту"}
-            disabled={connection !== "connected"}
-            rows={1}
-            onKeyDown={(event) => {
-              if (preferences.enterToSend && event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                submit(event);
-              }
-            }}
-          />
-          {isBusy ? (
-            <button type="button" className="icon-button stop" onClick={() => send({ type: "interrupt" })} title="Остановить">
-              <Square size={15} />
-            </button>
-          ) : (
-            <button className="send-button" disabled={!canSend} title="Отправить">
-              <ArrowUp size={17} />
-            </button>
-          )}
+          <div className="composer-box">
+            <textarea
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder={connection === "connected" ? "Напишите задачу Codex..." : "Сначала подключитесь к проекту"}
+              disabled={connection !== "connected"}
+              rows={1}
+              onKeyDown={(event) => {
+                if (preferences.enterToSend && event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  submit(event);
+                }
+              }}
+            />
+
+            <div className="composer-controls" onClick={(event) => event.stopPropagation()}>
+              <div className="composer-toggles">
+                <div className="composer-menu-anchor">
+                  <button
+                    type="button"
+                    className={`composer-control ${composerMenu === "reasoning" ? "active" : ""}`}
+                    onClick={(event) => toggleComposerMenu(event, "reasoning")}
+                    title="Рассуждение модели"
+                  >
+                    <Brain size={14} />
+                    <span>{selectedReasoningLabel}</span>
+                    <ChevronDown size={13} />
+                  </button>
+                  {composerMenu === "reasoning" && (
+                    <div className="composer-popover">
+                      <div className="popover-label">Рассуждение</div>
+                      {reasoningOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className="popover-option"
+                          onClick={() => {
+                            setComposerMenu(null);
+                            void updatePreferences({ reasoningLevel: option.value });
+                          }}
+                        >
+                          <span>{option.label}</span>
+                          {preferences.reasoningLevel === option.value && <Check size={15} />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="composer-menu-anchor">
+                  <button
+                    type="button"
+                    className={`composer-control ${composerMenu === "model" ? "active" : ""}`}
+                    onClick={(event) => toggleComposerMenu(event, "model")}
+                    title="Модель"
+                  >
+                    <Gauge size={14} />
+                    <span>{selectedModelLabel}</span>
+                    <ChevronDown size={13} />
+                  </button>
+                  {composerMenu === "model" && (
+                    <div className="composer-popover model-popover">
+                      <div className="popover-label">Модель</div>
+                      {modelOptions.map((option) => (
+                        <button
+                          key={option.value || "default"}
+                          type="button"
+                          className="popover-option"
+                          onClick={() => void updateSelectedModel(option.value)}
+                        >
+                          <span>{option.label}</span>
+                          {selectedModelValue === option.value && <Check size={15} />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="composer-menu-anchor">
+                  <button
+                    type="button"
+                    className={`composer-control ${composerMenu === "speed" ? "active" : ""}`}
+                    onClick={(event) => toggleComposerMenu(event, "speed")}
+                    title="Скорость ответа"
+                  >
+                    <Zap size={14} />
+                    <span>{selectedSpeedLabel}</span>
+                    <ChevronDown size={13} />
+                  </button>
+                  {composerMenu === "speed" && (
+                    <div className="composer-popover speed-popover">
+                      <div className="popover-label">Скорость</div>
+                      {speedOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className="popover-option stacked"
+                          onClick={() => {
+                            setComposerMenu(null);
+                            void updatePreferences({ responseSpeed: option.value });
+                          }}
+                        >
+                          <span>{option.label}</span>
+                          <small>{option.description}</small>
+                          {preferences.responseSpeed === option.value && <Check size={15} />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {isBusy ? (
+                <button type="button" className="send-button stop" onClick={() => send({ type: "interrupt" })} title="Остановить">
+                  <Square size={15} />
+                </button>
+              ) : (
+                <button className="send-button" disabled={!canSend} title="Отправить">
+                  <ArrowUp size={17} />
+                </button>
+              )}
+            </div>
+          </div>
         </form>
 
         {preferences.showDiagnostics && logs.length > 0 && (
@@ -1605,6 +1853,51 @@ export default function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {threadMenu && (
+        <div
+          className="thread-context-menu"
+          style={{ left: threadMenu.x, top: threadMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+          role="menu"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              const targetThread = threadMenu.thread;
+              setThreadMenu(null);
+              void togglePin(targetThread);
+            }}
+          >
+            <Pin size={15} fill={threadMetadata[threadMenu.thread.id]?.pinned ? "currentColor" : "none"} />
+            {threadMetadata[threadMenu.thread.id]?.pinned ? "Открепить" : "Закрепить"}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              openRenameThread(threadMenu.thread);
+              setThreadMenu(null);
+            }}
+          >
+            <Pencil size={15} />
+            Переименовать
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="danger"
+            onClick={() => {
+              setDeletingThread(threadMenu.thread);
+              setThreadMenu(null);
+            }}
+          >
+            <Trash2 size={15} />
+            Удалить
+          </button>
         </div>
       )}
 

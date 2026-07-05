@@ -37,7 +37,8 @@ button,
 .connection-chip,
 .settings-drawer,
 .message,
-.composer textarea {
+.composer textarea,
+.composer-box {
   transition:
     background-color 160ms ease,
     border-color 160ms ease,
@@ -496,7 +497,7 @@ textarea:focus {
 
 .project-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) 30px;
   gap: 2px 8px;
   align-items: center;
   width: 100%;
@@ -583,20 +584,16 @@ textarea:focus {
 }
 
 .project-disconnect {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+  display: grid;
+  width: 30px;
   height: 30px;
-  padding: 0 10px;
+  place-items: center;
+  padding: 0;
   border: 1px solid #f0b9b9;
   border-radius: 7px;
   background: #fff4f4;
   color: #a93636;
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 760;
-  white-space: nowrap;
 }
 
 .project-disconnect:hover {
@@ -745,20 +742,30 @@ textarea:focus {
   grid-row: 1;
   justify-content: space-between;
   gap: 20px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 68px;
   padding: 16px 28px;
   border-bottom: 1px solid #eaede9;
   background: var(--chat-bg);
+  overflow: hidden;
+}
+
+.chat-title {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .header-actions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 7px;
 }
 
 .chat-header h1 {
-  max-width: min(700px, 60vw);
+  max-width: 100%;
   margin: 0;
   overflow: hidden;
   color: #202422;
@@ -770,6 +777,9 @@ textarea:focus {
 
 .chat-header p {
   margin: 3px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .header-settings {
@@ -855,8 +865,11 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  width: 100%;
+  max-width: 100%;
   min-height: 0;
   overflow: auto;
+  overflow-x: hidden;
   padding: var(--messages-padding);
 }
 
@@ -903,7 +916,9 @@ textarea:focus {
 
 .steps-summary {
   display: grid;
+  flex: 0 0 auto;
   width: min(900px, 100%);
+  min-height: 42px;
   margin: 0 auto;
   overflow: hidden;
   border: 1px solid #dfe6e1;
@@ -1157,25 +1172,170 @@ textarea:focus {
 
 .composer {
   grid-row: 4;
-  gap: 10px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 14px 28px 22px;
   border-top: 1px solid #eaede9;
   background: var(--composer-bg);
+  overflow: hidden;
 }
 
-.composer:focus-within textarea {
+.composer-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  width: min(980px, 100%);
+  margin: 0 auto;
+  padding: 6px;
+  border: 1px solid #d7ddd7;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 1px 0 rgba(24, 30, 26, 0.04);
+}
+
+.composer:focus-within .composer-box {
   border-color: #20907b;
   box-shadow: 0 0 0 3px rgba(32, 144, 123, 0.12);
 }
 
+.composer textarea {
+  min-height: 38px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.composer textarea:focus {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.composer-controls,
+.composer-toggles {
+  display: flex;
+  align-items: center;
+}
+
+.composer-controls {
+  gap: 8px;
+}
+
+.composer-toggles {
+  gap: 4px;
+}
+
+.composer-menu-anchor {
+  position: relative;
+}
+
+.composer-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 32px;
+  max-width: 150px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #5d6761;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.composer-control span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer-control:hover,
+.composer-control.active {
+  border-color: #dce4de;
+  background: #f6f8f6;
+  color: #26302a;
+}
+
+.composer-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  display: grid;
+  gap: 4px;
+  width: 210px;
+  padding: 8px;
+  border: 1px solid #d8ded9;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 18px 50px rgba(24, 30, 26, 0.18);
+  backdrop-filter: blur(18px);
+}
+
+.model-popover {
+  width: 230px;
+}
+
+.speed-popover {
+  width: 230px;
+}
+
+.popover-label {
+  padding: 4px 8px;
+  color: #8a948d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.popover-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: transparent;
+  color: #202422;
+  cursor: pointer;
+  text-align: left;
+}
+
+.popover-option:hover {
+  background: #f0f3f0;
+}
+
+.popover-option svg {
+  color: #55615a;
+}
+
+.popover-option.stacked {
+  grid-template-columns: minmax(0, 1fr) 18px;
+}
+
+.popover-option.stacked small {
+  grid-column: 1;
+  color: #8a948d;
+  font-size: 11px;
+}
+
 .send-button {
-  width: 40px;
-  flex: 0 0 40px;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 9px;
   background: var(--primary-bg);
   color: var(--primary-color);
 }
 
 .stop {
+  background: #fff0f0;
   color: #9b2d2d;
 }
 
@@ -1231,6 +1391,49 @@ textarea:focus {
   color: #5e6861;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.thread-context-menu {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  gap: 3px;
+  width: 210px;
+  padding: 6px;
+  border: 1px solid #d8ded9;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 44px rgba(24, 30, 26, 0.18);
+  backdrop-filter: blur(18px);
+  animation: fadeIn 120ms ease both;
+}
+
+.thread-context-menu button {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 9px;
+  border-radius: 8px;
+  background: transparent;
+  color: #26302a;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+}
+
+.thread-context-menu button:hover {
+  background: #f0f3f0;
+}
+
+.thread-context-menu button.danger {
+  color: #a93636;
+}
+
+.thread-context-menu button.danger:hover {
+  background: #fff0f0;
 }
 
 .modal-head {
@@ -1678,7 +1881,7 @@ textarea:focus {
 }
 
 .concept-calm-terminal .composer textarea {
-  background: #ffffff;
+  background: transparent;
 }
 
 .concept-calm-terminal .composer textarea:disabled {
@@ -1703,7 +1906,9 @@ textarea:focus {
 
 .theme-dark .chat,
 .theme-dark .settings-drawer,
-.theme-dark .profile-modal {
+.theme-dark .profile-modal,
+.theme-dark .composer-popover,
+.theme-dark .thread-context-menu {
   background: #111513;
 }
 
@@ -1742,6 +1947,10 @@ textarea:focus {
 .theme-dark .icon-button,
 .theme-dark .header-settings,
 .theme-dark .connection-chip,
+.theme-dark .composer-box,
+.theme-dark .composer-control,
+.theme-dark .popover-option,
+.theme-dark .thread-context-menu,
 .theme-dark .secondary-button,
 .theme-dark .small-command,
 .theme-dark .new-dialog-button,
@@ -1762,14 +1971,29 @@ textarea:focus {
 .theme-dark .settings-section,
 .theme-dark .message-body,
 .theme-dark .message.tool .message-body,
-.theme-dark .steps-list {
+.theme-dark .steps-list,
+.theme-dark .composer-popover {
   border-color: #2b352f;
   background: #151a17;
 }
 
 .theme-dark .step-item p,
-.theme-dark .confirm-copy {
+.theme-dark .confirm-copy,
+.theme-dark .popover-option,
+.theme-dark .thread-context-menu button {
   color: #cdd7d1;
+}
+
+.theme-dark .composer-control:hover,
+.theme-dark .composer-control.active,
+.theme-dark .popover-option:hover,
+.theme-dark .thread-context-menu button:hover {
+  background: #202822;
+  color: #edf3ef;
+}
+
+.theme-dark .thread-context-menu button.danger {
+  color: #ff9d9d;
 }
 
 .theme-dark .message-avatar {
@@ -1894,7 +2118,7 @@ textarea:focus {
   }
 
   .chat-header h1 {
-    max-width: 62vw;
+    max-width: 100%;
   }
 
   .message {
@@ -1908,6 +2132,30 @@ textarea:focus {
 
   .message-body {
     padding: 11px 12px;
+  }
+
+  .composer-box {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .composer-controls {
+    justify-content: space-between;
+  }
+
+  .composer-toggles {
+    min-width: 0;
+    overflow-x: auto;
+    padding-bottom: 1px;
+  }
+
+  .composer-control {
+    max-width: none;
+  }
+
+  .composer-popover {
+    right: auto;
+    left: 0;
   }
 
   .two-fields {

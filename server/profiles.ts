@@ -22,6 +22,8 @@ const defaultUpdateCommand =
 const defaultPreferences: AppPreferences = {
   theme: "system",
   interfaceStyle: "native",
+  reasoningLevel: "very-high",
+  responseSpeed: "standard",
   animations: true,
   compactMode: false,
   autoCheckUpdates: true,
@@ -33,6 +35,8 @@ const defaultPreferences: AppPreferences = {
 };
 
 const interfaceStyles = ["native", "session-first", "calm-terminal"] as const;
+const reasoningLevels = ["low", "medium", "high", "very-high"] as const;
+const responseSpeeds = ["standard", "fast"] as const;
 
 const dataDir =
   process.env.CODEX_REMOTE_CONSOLE_HOME ??
@@ -99,6 +103,12 @@ function normalizePreferences(input?: Partial<AppPreferences>): AppPreferences {
     interfaceStyle: interfaceStyles.includes(interfaceStyle as AppPreferences["interfaceStyle"])
       ? interfaceStyle as AppPreferences["interfaceStyle"]
       : defaultPreferences.interfaceStyle,
+    reasoningLevel: reasoningLevels.includes(input?.reasoningLevel as AppPreferences["reasoningLevel"])
+      ? input!.reasoningLevel!
+      : defaultPreferences.reasoningLevel,
+    responseSpeed: responseSpeeds.includes(input?.responseSpeed as AppPreferences["responseSpeed"])
+      ? input!.responseSpeed!
+      : defaultPreferences.responseSpeed,
     animations:
       typeof input?.animations === "boolean"
         ? input.animations

@@ -22,6 +22,8 @@ export type CodexProfile = {
 export type AppPreferences = {
   theme: "system" | "light" | "dark";
   interfaceStyle: "native" | "session-first" | "calm-terminal";
+  reasoningLevel: "low" | "medium" | "high" | "very-high";
+  responseSpeed: "standard" | "fast";
   animations: boolean;
   compactMode: boolean;
   autoCheckUpdates: boolean;
