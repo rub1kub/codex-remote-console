@@ -1330,6 +1330,57 @@ textarea:focus {
   font-size: 11px;
 }
 
+.popover-disclosure {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 16px;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: transparent;
+  color: #202422;
+  cursor: pointer;
+  text-align: left;
+}
+
+.popover-disclosure:hover,
+.popover-disclosure.open {
+  background: #f0f3f0;
+}
+
+.popover-disclosure-title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: #8a948d;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.popover-disclosure-title span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popover-current {
+  min-width: 0;
+  overflow: hidden;
+  color: #68736c;
+  font-size: 12px;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popover-nested {
+  display: grid;
+  gap: 2px;
+  padding: 2px 0 4px 18px;
+}
+
 .popover-option {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 18px;
@@ -2034,13 +2085,16 @@ textarea:focus {
 }
 
 .theme-dark .popover-section-head,
-.theme-dark .popover-section-head small {
+.theme-dark .popover-section-head small,
+.theme-dark .popover-disclosure-title,
+.theme-dark .popover-current {
   color: #8c9991;
 }
 
 .theme-dark .step-item p,
 .theme-dark .confirm-copy,
 .theme-dark .popover-option,
+.theme-dark .popover-disclosure,
 .theme-dark .thread-context-menu button {
   color: #cdd7d1;
 }
@@ -2048,6 +2102,8 @@ textarea:focus {
 .theme-dark .composer-control:hover,
 .theme-dark .composer-control.active,
 .theme-dark .popover-option:hover,
+.theme-dark .popover-disclosure:hover,
+.theme-dark .popover-disclosure.open,
 .theme-dark .thread-context-menu button:hover {
   background: #202822;
   color: #edf3ef;

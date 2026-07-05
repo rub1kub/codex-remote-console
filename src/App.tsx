@@ -389,6 +389,7 @@ export default function App() {
     y: number;
   } | null>(null);
   const [isComposerMenuOpen, setComposerMenuOpen] = useState(false);
+  const [openComposerSubmenu, setOpenComposerSubmenu] = useState<"model" | "speed" | null>(null);
   const [renamingThread, setRenamingThread] = useState<CodexThread | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deletingThread, setDeletingThread] = useState<CodexThread | null>(null);
@@ -487,6 +488,7 @@ export default function App() {
     const closeTransientMenus = () => {
       setThreadMenu(null);
       setComposerMenuOpen(false);
+      setOpenComposerSubmenu(null);
     };
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -830,7 +832,13 @@ export default function App() {
 
   function toggleComposerMenu(event: MouseEvent) {
     event.stopPropagation();
-    setComposerMenuOpen((current) => !current);
+    setComposerMenuOpen((current) => {
+      const nextOpen = !current;
+      if (!nextOpen) {
+        setOpenComposerSubmenu(null);
+      }
+      return nextOpen;
+    });
   }
 
   async function updateSelectedModel(model: string) {
@@ -842,6 +850,7 @@ export default function App() {
     const previousProfiles = profiles;
     const nextModel = model || undefined;
     setComposerMenuOpen(false);
+    setOpenComposerSubmenu(null);
     setProfiles((current) =>
       current.map((profile) =>
         profile.id === selectedProfile.id
@@ -1465,44 +1474,86 @@ export default function App() {
                       </section>
 
                       <section className="popover-section">
-                        <div className="popover-section-head">
-                          <Gauge size={14} />
-                          <span>Модель</span>
-                        </div>
-                        {modelOptions.map((option) => (
-                          <button
-                            key={option.value || "default"}
-                            type="button"
-                            className="popover-option"
-                            onClick={() => void updateSelectedModel(option.value)}
-                          >
-                            <span>{option.label}</span>
-                            {selectedModelValue === option.value && <Check size={15} />}
-                          </button>
-                        ))}
+                        <button
+                          type="button"
+                          className={`popover-disclosure ${openComposerSubmenu === "model" ? "open" : ""}`}
+                          onClick={() =>
+                            setOpenComposerSubmenu((current) =>
+                              current === "model" ? null : "model"
+                            )
+                          }
+                        >
+                          <span className="popover-disclosure-title">
+                            <Gauge size={14} />
+                            <span>Модель</span>
+                          </span>
+                          <span className="popover-current">
+                            {selectedModelOption?.label || selectedModelValue.replace(/^gpt-/, "") || "по умолчанию"}
+                          </span>
+                          {openComposerSubmenu === "model" ? (
+                            <ChevronDown size={15} />
+                          ) : (
+                            <ChevronRight size={15} />
+                          )}
+                        </button>
+                        {openComposerSubmenu === "model" && (
+                          <div className="popover-nested">
+                            {modelOptions.map((option) => (
+                              <button
+                                key={option.value || "default"}
+                                type="button"
+                                className="popover-option"
+                                onClick={() => void updateSelectedModel(option.value)}
+                              >
+                                <span>{option.label}</span>
+                                {selectedModelValue === option.value && <Check size={15} />}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </section>
 
                       <section className="popover-section">
-                        <div className="popover-section-head">
-                          <Zap size={14} />
-                          <span>Скорость</span>
-                          <small>{selectedSpeedLabel}</small>
-                        </div>
-                        {speedOptions.map((option) => (
-                          <button
-                            key={option.value}
-                            type="button"
-                            className="popover-option stacked"
-                            onClick={() => {
-                              setComposerMenuOpen(false);
-                              void updatePreferences({ responseSpeed: option.value });
-                            }}
-                          >
-                            <span>{option.label}</span>
-                            <small>{option.description}</small>
-                            {preferences.responseSpeed === option.value && <Check size={15} />}
-                          </button>
-                        ))}
+                        <button
+                          type="button"
+                          className={`popover-disclosure ${openComposerSubmenu === "speed" ? "open" : ""}`}
+                          onClick={() =>
+                            setOpenComposerSubmenu((current) =>
+                              current === "speed" ? null : "speed"
+                            )
+                          }
+                        >
+                          <span className="popover-disclosure-title">
+                            <Zap size={14} />
+                            <span>Скорость</span>
+                          </span>
+                          <span className="popover-current">{selectedSpeedLabel}</span>
+                          {openComposerSubmenu === "speed" ? (
+                            <ChevronDown size={15} />
+                          ) : (
+                            <ChevronRight size={15} />
+                          )}
+                        </button>
+                        {openComposerSubmenu === "speed" && (
+                          <div className="popover-nested">
+                            {speedOptions.map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                className="popover-option stacked"
+                                onClick={() => {
+                                  setComposerMenuOpen(false);
+                                  setOpenComposerSubmenu(null);
+                                  void updatePreferences({ responseSpeed: option.value });
+                                }}
+                              >
+                                <span>{option.label}</span>
+                                <small>{option.description}</small>
+                                {preferences.responseSpeed === option.value && <Check size={15} />}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </section>
                     </div>
                   )}
