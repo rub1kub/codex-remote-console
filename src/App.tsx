@@ -1,9 +1,9 @@
 import {
   ArrowUp,
-  Bot,
   Check,
   Circle,
   History,
+  KeyRound,
   Loader2,
   MessageSquare,
   Plus,
@@ -26,7 +26,9 @@ import type {
 } from "./types";
 
 type ConnectionState = "idle" | "connecting" | "connected";
-type ProfileDraft = Omit<CodexProfile, "id" | "createdAt" | "updatedAt">;
+type ProfileDraft = Omit<CodexProfile, "id" | "createdAt" | "updatedAt"> & {
+  password?: string;
+};
 
 const emptyDraft: ProfileDraft = {
   name: "",
@@ -125,6 +127,7 @@ export default function App() {
   const [isProfileOpen, setProfileOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<CodexProfile | null>(null);
   const [draft, setDraft] = useState<ProfileDraft>(emptyDraft);
+  const [sessionPasswords, setSessionPasswords] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const [isBusy, setBusy] = useState(false);
@@ -287,7 +290,11 @@ export default function App() {
     setMessages([]);
     setActiveThread(null);
     setConnection("connecting");
-    send({ type: "connect", profileId: selectedProfileId });
+    send({
+      type: "connect",
+      profileId: selectedProfileId,
+      password: sessionPasswords[selectedProfileId] || undefined
+    });
   }
 
   function disconnect() {
@@ -339,7 +346,8 @@ export default function App() {
             codexBin: profile.codexBin,
             model: profile.model,
             approvalPolicy: profile.approvalPolicy,
-            sandboxMode: profile.sandboxMode
+            sandboxMode: profile.sandboxMode,
+            password: sessionPasswords[profile.id] ?? ""
           }
         : emptyDraft
     );
@@ -348,11 +356,12 @@ export default function App() {
 
   async function saveDraft(event: FormEvent) {
     event.preventDefault();
+    const { password, ...profilePayload } = draft;
     const url = editingProfile ? `/api/profiles/${editingProfile.id}` : "/api/profiles";
     const response = await fetch(url, {
       method: editingProfile ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(draft)
+      body: JSON.stringify(profilePayload)
     });
     const data = await response.json();
     if (!response.ok) {
@@ -361,6 +370,12 @@ export default function App() {
     }
     await loadProfiles();
     setSelectedProfileId(data.profile.id);
+    if (password) {
+      setSessionPasswords((current) => ({
+        ...current,
+        [data.profile.id]: password
+      }));
+    }
     setProfileOpen(false);
   }
 
@@ -383,16 +398,6 @@ export default function App() {
   return (
     <main className="app-shell">
       <aside className="sidebar">
-        <div className="brand-row">
-          <div className="brand-mark">
-            <Bot size={18} />
-          </div>
-          <div>
-            <strong>Codex Remote</strong>
-            <span>SSH sessions</span>
-          </div>
-        </div>
-
         <section className="profile-box">
           <label>Сервер</label>
           <div className="profile-select-row">
@@ -593,6 +598,7 @@ export default function App() {
                     value={draft.sshTarget}
                     onChange={(event) => setDraft({ ...draft, sshTarget: event.target.value })}
                     placeholder="devbox или ubuntu@host"
+                    autoComplete="username"
                   />
                 </label>
                 <div className="two-fields">
@@ -613,6 +619,20 @@ export default function App() {
                     />
                   </label>
                 </div>
+                <label>
+                  Password
+                  <div className="password-field">
+                    <KeyRound size={15} />
+                    <input
+                      type="password"
+                      value={draft.password ?? ""}
+                      onChange={(event) => setDraft({ ...draft, password: event.target.value })}
+                      placeholder="не сохраняется"
+                      autoComplete="current-password"
+                    />
+                  </div>
+                  <small>Используется только для текущего подключения.</small>
+                </label>
               </>
             )}
 

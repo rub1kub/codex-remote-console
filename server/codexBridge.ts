@@ -3,10 +3,12 @@ import { EventEmitter } from "node:events";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
+import type { Writable } from "node:stream";
+import { Client, type ClientChannel } from "ssh2";
 
 import type {
-  ApprovalPolicy,
   CodexProfile,
+  ConnectionSecrets,
   JsonRpcMessage,
   SandboxMode,
   ThreadListOptions
@@ -95,6 +97,13 @@ function buildTurnParams(
   };
 }
 
+function buildRemoteCommand(profile: CodexProfile) {
+  return [
+    `cd ${shellQuotePath(profile.projectPath)}`,
+    `${shellQuotePath(profile.codexBin)} app-server --listen stdio://`
+  ].join(" && ");
+}
+
 function buildSpawn(profile: CodexProfile) {
   if (profile.mode === "local") {
     return {
@@ -121,12 +130,7 @@ function buildSpawn(profile: CodexProfile) {
     args.push("-i", expandLocalPath(profile.identityFile));
   }
 
-  const innerCommand = [
-    `cd ${shellQuotePath(profile.projectPath)}`,
-    `${shellQuotePath(profile.codexBin)} app-server --listen stdio://`
-  ].join(" && ");
-
-  args.push(profile.sshTarget, `bash -lc ${shellQuote(innerCommand)}`);
+  args.push(profile.sshTarget, `bash -lc ${shellQuote(buildRemoteCommand(profile))}`);
 
   return {
     command: "ssh",
@@ -135,45 +139,49 @@ function buildSpawn(profile: CodexProfile) {
   };
 }
 
+function parseSshTarget(target: string, port?: number) {
+  const atIndex = target.lastIndexOf("@");
+  const username =
+    atIndex > 0 ? target.slice(0, atIndex) : os.userInfo().username;
+  let host = atIndex > 0 ? target.slice(atIndex + 1) : target;
+  let parsedPort = port;
+
+  const colonIndex = host.lastIndexOf(":");
+  if (!parsedPort && colonIndex > 0 && !host.includes("]")) {
+    const maybePort = Number(host.slice(colonIndex + 1));
+    if (Number.isInteger(maybePort) && maybePort > 0 && maybePort <= 65535) {
+      parsedPort = maybePort;
+      host = host.slice(0, colonIndex);
+    }
+  }
+
+  return { host, username, port: parsedPort ?? 22 };
+}
+
 export class CodexBridge extends EventEmitter<BridgeEvents> {
   private proc?: ChildProcessWithoutNullStreams;
+  private sshClient?: Client;
+  private rpcStream?: Writable;
   private nextId = 1;
   private pending = new Map<number | string, PendingRequest>();
   private activeThreadId?: string;
   private activeTurnId?: string;
 
-  constructor(private readonly profile: CodexProfile) {
+  constructor(
+    private readonly profile: CodexProfile,
+    private readonly secrets: ConnectionSecrets = {}
+  ) {
     super();
   }
 
   async start() {
-    const spawnConfig = buildSpawn(this.profile);
     this.emit("status", "starting");
 
-    this.proc = spawn(spawnConfig.command, spawnConfig.args, {
-      cwd: spawnConfig.cwd,
-      env: { ...process.env, NO_COLOR: "1" },
-      stdio: ["pipe", "pipe", "pipe"]
-    });
-
-    const rl = readline.createInterface({ input: this.proc.stdout });
-    rl.on("line", (line) => this.handleLine(line));
-
-    this.proc.stderr.on("data", (chunk: Buffer) => {
-      this.emit("stderr", chunk.toString("utf8"));
-    });
-
-    this.proc.on("error", (error) => {
-      this.rejectAll(error);
-      this.emit("status", `error:${error.message}`);
-    });
-
-    this.proc.on("close", (code, signal) => {
-      this.rejectAll(
-        new Error(`codex app-server exited (${code ?? "no-code"} ${signal ?? ""})`)
-      );
-      this.emit("status", "closed");
-    });
+    if (this.profile.mode === "ssh" && this.secrets.password) {
+      await this.startSsh2();
+    } else {
+      this.startSpawn();
+    }
 
     await this.request("initialize", {
       clientInfo: {
@@ -191,10 +199,16 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
 
   dispose() {
     this.rejectAll(new Error("Connection closed."));
+    if (this.rpcStream && !this.rpcStream.destroyed) {
+      this.rpcStream.end();
+    }
     if (this.proc && !this.proc.killed) {
       this.proc.kill("SIGTERM");
     }
+    this.sshClient?.end();
+    this.rpcStream = undefined;
     this.proc = undefined;
+    this.sshClient = undefined;
   }
 
   async listThreads(options: ThreadListOptions = {}) {
@@ -268,8 +282,119 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
     });
   }
 
+  private startSpawn() {
+    const spawnConfig = buildSpawn(this.profile);
+
+    this.proc = spawn(spawnConfig.command, spawnConfig.args, {
+      cwd: spawnConfig.cwd,
+      env: { ...process.env, NO_COLOR: "1" },
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    this.rpcStream = this.proc.stdin;
+
+    const rl = readline.createInterface({ input: this.proc.stdout });
+    rl.on("line", (line) => this.handleLine(line));
+
+    this.proc.stderr.on("data", (chunk: Buffer) => {
+      this.emit("stderr", chunk.toString("utf8"));
+    });
+
+    this.proc.on("error", (error) => {
+      this.rejectAll(error);
+      this.emit("status", `error:${error.message}`);
+    });
+
+    this.proc.on("close", (code, signal) => {
+      this.rejectAll(
+        new Error(`codex app-server exited (${code ?? "no-code"} ${signal ?? ""})`)
+      );
+      this.emit("status", "closed");
+    });
+  }
+
+  private startSsh2() {
+    const { host, username, port } = parseSshTarget(
+      this.profile.sshTarget,
+      this.profile.port
+    );
+    const remoteCommand = `bash -lc ${shellQuote(buildRemoteCommand(this.profile))}`;
+
+    return new Promise<void>((resolve, reject) => {
+      const client = new Client();
+      let settled = false;
+
+      const fail = (error: Error) => {
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
+        this.rejectAll(error);
+        this.emit("status", `error:${error.message}`);
+      };
+
+      client
+        .on("ready", () => {
+          client.exec(remoteCommand, (error, channel) => {
+            if (error) {
+              fail(error);
+              return;
+            }
+
+            this.sshClient = client;
+            this.setupSshChannel(channel);
+            if (!settled) {
+              settled = true;
+              resolve();
+            }
+          });
+        })
+        .on("error", fail)
+        .on("close", () => {
+          this.rejectAll(new Error("SSH connection closed."));
+          this.emit("status", "closed");
+        })
+        .connect({
+          host,
+          port,
+          username,
+          password: this.secrets.password,
+          readyTimeout: 20_000,
+          keepaliveInterval: 30_000,
+          keepaliveCountMax: 3
+        });
+    });
+  }
+
+  private setupSshChannel(channel: ClientChannel) {
+    this.rpcStream = channel;
+
+    const rl = readline.createInterface({ input: channel });
+    rl.on("line", (line) => this.handleLine(line));
+
+    channel.stderr.on("data", (chunk: Buffer) => {
+      this.emit("stderr", chunk.toString("utf8"));
+    });
+
+    channel.on("close", () => {
+      this.rejectAll(new Error("Remote codex app-server channel closed."));
+      this.emit("status", "closed");
+    });
+  }
+
+  private canWriteRpc() {
+    return Boolean(
+      this.rpcStream &&
+        !this.rpcStream.destroyed &&
+        this.rpcStream.writable
+    );
+  }
+
+  private writeRpc(message: unknown) {
+    this.rpcStream?.write(`${JSON.stringify(message)}\n`);
+  }
+
   private request(method: string, params: unknown) {
-    if (!this.proc?.stdin.writable) {
+    if (!this.canWriteRpc()) {
       return Promise.reject(new Error("Codex app-server is not connected."));
     }
 
@@ -283,13 +408,13 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       }, REQUEST_TIMEOUT_MS);
 
       this.pending.set(id, { resolve, reject, timer });
-      this.proc?.stdin.write(`${JSON.stringify(message)}\n`);
+      this.writeRpc(message);
     });
   }
 
   private notify(method: string, params: unknown) {
-    if (this.proc?.stdin.writable) {
-      this.proc.stdin.write(`${JSON.stringify({ method, params })}\n`);
+    if (this.canWriteRpc()) {
+      this.writeRpc({ method, params });
     }
   }
 

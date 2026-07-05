@@ -1,5 +1,7 @@
 node_modules/
+build/
 dist/
+release/
 .DS_Store
 .env
 .env.*

@@ -43,3 +43,6 @@ export type ThreadListOptions = {
   archived?: boolean;
 };
 
+export type ConnectionSecrets = {
+  password?: string;
+};

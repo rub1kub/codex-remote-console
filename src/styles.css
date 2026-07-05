@@ -41,25 +41,11 @@ button {
   flex-direction: column;
   gap: 14px;
   min-height: 100vh;
-  padding: 18px 14px;
+  padding: 14px;
   border-right: 1px solid #dfe3df;
   background: #f0f2ef;
 }
 
-.brand-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 4px 8px;
-}
-
-.brand-row strong {
-  display: block;
-  font-size: 15px;
-  line-height: 1.2;
-}
-
-.brand-row span,
 .profile-meta,
 .chat-header p,
 .thread-row small,
@@ -67,17 +53,6 @@ button {
 .welcome p {
   color: #69736c;
   font-size: 12px;
-}
-
-.brand-mark {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  border: 1px solid #c9d3cb;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #157f6d;
 }
 
 .profile-box {
@@ -108,6 +83,30 @@ button {
 
 .profile-select-row {
   gap: 8px;
+}
+
+.password-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid #d7ddd7;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.password-field input {
+  height: auto;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.profile-modal small {
+  color: #7a837d;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 select,
@@ -568,4 +567,3 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 }
-
