@@ -517,6 +517,7 @@ export default function App() {
   const [pendingDeleteThreadId, setPendingDeleteThreadId] = useState("");
   const [isCommandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
+  const [isSettingsClosing, setSettingsClosing] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -524,6 +525,8 @@ export default function App() {
   const sessionPasswordsRef = useRef(sessionPasswords);
   const searchRef = useRef(search);
   const didRestoreThreadRef = useRef(false);
+  const settingsVisibleRef = useRef(false);
+  const settingsCloseTimerRef = useRef<number | null>(null);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId),
@@ -601,6 +604,18 @@ export default function App() {
   }, [preferences]);
 
   useEffect(() => {
+    settingsVisibleRef.current = isSettingsOpen;
+  }, [isSettingsOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (settingsCloseTimerRef.current) {
+        window.clearTimeout(settingsCloseTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     sessionPasswordsRef.current = sessionPasswords;
   }, [sessionPasswords]);
 
@@ -638,6 +653,7 @@ export default function App() {
       if (event.key === "Escape") {
         closeTransientMenus();
         setCommandOpen(false);
+        closeSettings();
       }
     };
 
@@ -739,6 +755,40 @@ export default function App() {
     setDirectoryLoading(false);
   }
 
+  function openSettings() {
+    if (settingsCloseTimerRef.current) {
+      window.clearTimeout(settingsCloseTimerRef.current);
+      settingsCloseTimerRef.current = null;
+    }
+    settingsVisibleRef.current = true;
+    setSettingsClosing(false);
+    setSettingsOpen(true);
+  }
+
+  function closeSettings() {
+    if (!settingsVisibleRef.current) {
+      return;
+    }
+
+    if (!preferencesRef.current.animations) {
+      settingsVisibleRef.current = false;
+      setSettingsClosing(false);
+      setSettingsOpen(false);
+      return;
+    }
+
+    setSettingsClosing(true);
+    if (settingsCloseTimerRef.current) {
+      window.clearTimeout(settingsCloseTimerRef.current);
+    }
+    settingsCloseTimerRef.current = window.setTimeout(() => {
+      settingsVisibleRef.current = false;
+      setSettingsOpen(false);
+      setSettingsClosing(false);
+      settingsCloseTimerRef.current = null;
+    }, 260);
+  }
+
   function updateDraft(patch: Partial<ProfileDraft>, resetBrowser = false) {
     setDraft((current) => ({ ...current, ...patch }));
     if (resetBrowser) {
@@ -782,6 +832,7 @@ export default function App() {
       setDirectoryListing(data.listing);
       setDraft((current) => ({
         ...current,
+        name: current.name.trim() ? current.name : basenameOf(data.listing!.currentPath),
         projectPath: data.listing!.currentPath
       }));
     } catch (directoryLoadError) {
@@ -1306,7 +1357,11 @@ export default function App() {
 
   async function saveDraft(event: FormEvent) {
     event.preventDefault();
-    const { password, ...profilePayload } = draft;
+    const { password, ...rawProfilePayload } = draft;
+    const profilePayload = {
+      ...rawProfilePayload,
+      name: rawProfilePayload.name.trim() || basenameOf(rawProfilePayload.projectPath.trim())
+    };
     const url = editingProfile ? `/api/profiles/${editingProfile.id}` : "/api/profiles";
     const response = await fetch(url, {
       method: editingProfile ? "PATCH" : "POST",
@@ -1372,7 +1427,7 @@ export default function App() {
         label: "Настройки",
         detail: "Codex, внешний вид, поведение",
         icon: <SlidersHorizontal size={15} />,
-        run: () => setSettingsOpen(true)
+        run: openSettings
       },
       {
         id: "project",
@@ -1608,7 +1663,7 @@ export default function App() {
             <button className="header-settings" onClick={() => setCommandOpen(true)} title="Команды" aria-label="Команды">
               <Command size={16} />
             </button>
-            <button className="header-settings" onClick={() => setSettingsOpen(true)} title="Настройки" aria-label="Настройки">
+            <button className="header-settings" onClick={openSettings} title="Настройки" aria-label="Настройки">
               <SlidersHorizontal size={16} />
             </button>
             <div className={`connection-chip ${connection}`} title={statusText[connection]}>
@@ -1918,6 +1973,7 @@ export default function App() {
                 placeholder="zavozik.xyz"
                 autoComplete="organization"
               />
+              <small>Если оставить пустым, имя возьмется из выбранной папки.</small>
             </label>
 
             <label>
@@ -1945,29 +2001,6 @@ export default function App() {
                     autoComplete="username"
                   />
                 </label>
-                <div className="two-fields">
-                  <label>
-                    Порт
-                    <input
-                      value={draft.port ?? ""}
-                      onChange={(event) => updateDraft(
-                        { port: event.target.value ? Number(event.target.value) : undefined },
-                        true
-                      )}
-                      placeholder="22"
-                      autoComplete="off"
-                    />
-                  </label>
-                  <label>
-                    Ключ SSH
-                    <input
-                      value={draft.identityFile ?? ""}
-                      onChange={(event) => updateDraft({ identityFile: event.target.value }, true)}
-                      placeholder="~/.ssh/id_ed25519"
-                      autoComplete="off"
-                    />
-                  </label>
-                </div>
                 <label>
                   Пароль
                   <div className="password-field">
@@ -1982,6 +2015,32 @@ export default function App() {
                   </div>
                   <small>Используется только для текущего подключения.</small>
                 </label>
+                <details className="advanced-details">
+                  <summary>Параметры SSH</summary>
+                  <div className="two-fields">
+                    <label>
+                      Порт
+                      <input
+                        value={draft.port ?? ""}
+                        onChange={(event) => updateDraft(
+                          { port: event.target.value ? Number(event.target.value) : undefined },
+                          true
+                        )}
+                        placeholder="22"
+                        autoComplete="off"
+                      />
+                    </label>
+                    <label>
+                      Ключ SSH
+                      <input
+                        value={draft.identityFile ?? ""}
+                        onChange={(event) => updateDraft({ identityFile: event.target.value }, true)}
+                        placeholder="~/.ssh/id_ed25519"
+                        autoComplete="off"
+                      />
+                    </label>
+                  </div>
+                </details>
               </>
             )}
 
@@ -2003,7 +2062,7 @@ export default function App() {
                     disabled={isDirectoryLoading}
                   >
                     {isDirectoryLoading ? <Loader2 size={15} className="spin" /> : <FolderOpen size={15} />}
-                    Открыть
+                    Показать папки
                   </button>
                 </div>
 
@@ -2036,6 +2095,24 @@ export default function App() {
                     </button>
                   </div>
 
+                  {directoryListing && (
+                    <div className="folder-current">
+                      <FolderOpen size={15} />
+                      <span>{directoryListing.currentPath}</span>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => updateDraft({
+                          name: draft.name.trim() ? draft.name : basenameOf(directoryListing.currentPath),
+                          projectPath: directoryListing.currentPath
+                        })}
+                      >
+                        <Check size={14} />
+                        Выбрать
+                      </button>
+                    </div>
+                  )}
+
                   <div className="folder-list">
                     {directoryListing ? (
                       directoryListing.entries.length > 0 ? (
@@ -2054,76 +2131,90 @@ export default function App() {
                         <div className="folder-empty">Подпапок нет. Можно сохранить эту папку.</div>
                       )
                     ) : (
-                      <div className="folder-empty">Нажмите «Открыть», чтобы увидеть папки.</div>
+                      <div className="folder-empty folder-empty-action">
+                        <span>Папки появятся здесь.</span>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => void loadDirectories()}
+                          disabled={isDirectoryLoading}
+                        >
+                          {isDirectoryLoading ? <Loader2 size={15} className="spin" /> : <FolderOpen size={15} />}
+                          Показать папки
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
               </div>
             </label>
 
-            <div className="two-fields">
+            <details className="advanced-details">
+              <summary>Параметры Codex</summary>
+              <div className="two-fields">
+                <label>
+                  Команда Codex
+                  <input
+                    value={draft.codexBin}
+                    onChange={(event) => updateDraft({ codexBin: event.target.value })}
+                    placeholder="codex"
+                    autoComplete="off"
+                  />
+                </label>
+                <label>
+                  Модель
+                  <select
+                    value={draft.model ?? ""}
+                    onChange={(event) => updateDraft({ model: event.target.value || undefined })}
+                  >
+                    {modelOptions.map((option) => (
+                      <option key={option.value || "default"} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                    {draft.model && !modelOptions.some((option) => option.value === draft.model) && (
+                      <option value={draft.model}>{draft.model}</option>
+                    )}
+                  </select>
+                </label>
+              </div>
+
               <label>
-                Команда Codex
+                Команда обновления Codex
                 <input
-                  value={draft.codexBin}
-                  onChange={(event) => updateDraft({ codexBin: event.target.value })}
-                  placeholder="codex"
+                  value={draft.updateCommand ?? ""}
+                  onChange={(event) => updateDraft({ updateCommand: event.target.value })}
+                  placeholder={preferences.defaultUpdateCommand}
                   autoComplete="off"
                 />
               </label>
-              <label>
-                Модель
-                <select
-                  value={draft.model ?? ""}
-                  onChange={(event) => updateDraft({ model: event.target.value || undefined })}
-                >
-                  {modelOptions.map((option) => (
-                    <option key={option.value || "default"} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                  {draft.model && !modelOptions.some((option) => option.value === draft.model) && (
-                    <option value={draft.model}>{draft.model}</option>
-                  )}
-                </select>
-              </label>
-            </div>
 
-            <label>
-              Команда обновления Codex
-              <input
-                value={draft.updateCommand ?? ""}
-                onChange={(event) => updateDraft({ updateCommand: event.target.value })}
-                placeholder={preferences.defaultUpdateCommand}
-                autoComplete="off"
-              />
-            </label>
-
-            <div className="two-fields">
-              <label>
-                Подтверждения
-                <select
-                  value={draft.approvalPolicy}
-                  onChange={(event) => updateDraft({ approvalPolicy: event.target.value as ProfileDraft["approvalPolicy"] })}
-                >
-                  <option value="never">не спрашивать</option>
-                  <option value="on-request">спрашивать при необходимости</option>
-                  <option value="on-failure">спрашивать после ошибки</option>
-                  <option value="untrusted">строгий режим</option>
-                </select>
-              </label>
-              <label>
-                Доступ к файлам
-                <select
-                  value={draft.sandboxMode}
-                  onChange={(event) => updateDraft({ sandboxMode: event.target.value as ProfileDraft["sandboxMode"] })}
-                >
-                  <option value="danger-full-access">полный доступ</option>
-                  <option value="workspace-write">запись в проекте</option>
-                  <option value="read-only">только чтение</option>
-                </select>
-              </label>
-            </div>
+              <div className="two-fields">
+                <label>
+                  Подтверждения
+                  <select
+                    value={draft.approvalPolicy}
+                    onChange={(event) => updateDraft({ approvalPolicy: event.target.value as ProfileDraft["approvalPolicy"] })}
+                  >
+                    <option value="never">не спрашивать</option>
+                    <option value="on-request">спрашивать при необходимости</option>
+                    <option value="on-failure">спрашивать после ошибки</option>
+                    <option value="untrusted">строгий режим</option>
+                  </select>
+                </label>
+                <label>
+                  Доступ к файлам
+                  <select
+                    value={draft.sandboxMode}
+                    onChange={(event) => updateDraft({ sandboxMode: event.target.value as ProfileDraft["sandboxMode"] })}
+                  >
+                    <option value="danger-full-access">полный доступ</option>
+                    <option value="workspace-write">запись в проекте</option>
+                    <option value="read-only">только чтение</option>
+                  </select>
+                </label>
+              </div>
+            </details>
 
             <div className="modal-actions">
               {editingProfile && (
@@ -2298,15 +2389,15 @@ export default function App() {
         </div>
       )}
 
-      {isSettingsOpen && renderLayer(
-        <div className="settings-backdrop" role="presentation">
+      {(isSettingsOpen || isSettingsClosing) && renderLayer(
+        <div className={`settings-backdrop ${isSettingsClosing ? "closing" : ""}`} role="presentation">
           <aside className="settings-drawer" aria-label="Настройки">
             <div className="modal-head">
               <div>
                 <h2>Настройки</h2>
                 <p>Поведение приложения и Codex</p>
               </div>
-              <button type="button" className="icon-button" onClick={() => setSettingsOpen(false)}>
+              <button type="button" className="icon-button" onClick={closeSettings}>
                 <X size={16} />
               </button>
             </div>
