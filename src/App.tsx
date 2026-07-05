@@ -591,34 +591,34 @@ export default function App() {
     }
   }
 
-  function connect() {
-    if (!selectedProfileId) {
+  function connectProject(profileId = selectedProfileId) {
+    if (!profileId) {
       setProfileOpen(true);
       return;
     }
+    setSelectedProfileId(profileId);
     setError("");
     setMessages([]);
     setActiveThread(null);
+    setThreads([]);
+    setBusy(false);
     setConnection("connecting");
     send({
       type: "connect",
-      profileId: selectedProfileId,
-      password: sessionPasswords[selectedProfileId] || undefined
+      profileId,
+      password: sessionPasswords[profileId] || undefined
     });
   }
 
-  function selectProject(profileId: string) {
-    if (profileId === selectedProfileId) return;
-    if (connection !== "idle") {
-      send({ type: "disconnect" });
+  function runProject(profileId: string) {
+    if (connection === "connecting") return;
+
+    if (profileId === selectedProfileId && connection === "connected") {
+      disconnect();
+      return;
     }
-    setSelectedProfileId(profileId);
-    setConnection("idle");
-    setBusy(false);
-    setThreads([]);
-    setActiveThread(null);
-    setMessages([]);
-    setError("");
+
+    connectProject(profileId);
   }
 
   function checkCodexCli() {
@@ -809,9 +809,6 @@ export default function App() {
     .filter(Boolean)
     .join(" ");
 
-  const currentProjectTitle = projectTitleOf(selectedProfile);
-  const currentServerLabel = serverLabelOf(selectedProfile);
-
   const renderThreadRow = (thread: CodexThread) => {
     const pinned = Boolean(threadMetadata[thread.id]?.pinned);
     return (
@@ -839,45 +836,6 @@ export default function App() {
   return (
     <main className={rootClassName}>
       <aside className="sidebar">
-        <section className="workspace-panel">
-          <div className="workspace-head">
-            <div>
-              <span>Рабочее место</span>
-              <strong>{currentServerLabel}</strong>
-            </div>
-          </div>
-
-          {selectedProfile && (
-            <div className="connection-strip">
-              <div className="connection-copy">
-                <span className={`connection-dot ${connection}`} />
-                <div>
-                  <strong>{currentProjectTitle}</strong>
-                  <small>{selectedProfile.projectPath}</small>
-                </div>
-              </div>
-              <button
-                className="connect-action"
-                onClick={connection === "connected" ? disconnect : connect}
-                disabled={connection === "connecting"}
-              >
-                {connection === "connecting" ? (
-                  <Loader2 size={15} className="spin" />
-                ) : connection === "connected" ? (
-                  <Square size={13} />
-                ) : (
-                  <Check size={15} />
-                )}
-                {connection === "connected"
-                  ? "Отключить"
-                  : connection === "connecting"
-                    ? "Ждем"
-                    : "Подключить"}
-              </button>
-            </div>
-          )}
-        </section>
-
         <section className="project-panel">
           <div className="section-head">
             <div>
@@ -901,17 +859,40 @@ export default function App() {
                   <Server size={13} />
                   <span>{group.label}</span>
                 </div>
-                {group.profiles.map((profile) => (
-                  <button
-                    key={profile.id}
-                    className={`project-row ${profile.id === selectedProfileId ? "active" : ""}`}
-                    onClick={() => selectProject(profile.id)}
-                  >
-                    <Folder size={15} />
-                    <span>{projectTitleOf(profile)}</span>
-                    <small>{profile.projectPath}</small>
-                  </button>
-                ))}
+                {group.profiles.map((profile) => {
+                  const isActiveProject = profile.id === selectedProfileId;
+                  const projectConnection = isActiveProject ? connection : "idle";
+                  const projectAction =
+                    projectConnection === "connected"
+                      ? "Отключить"
+                      : projectConnection === "connecting"
+                        ? "Ждем"
+                        : "Подключить";
+
+                  return (
+                    <button
+                      key={profile.id}
+                      className={`project-row ${isActiveProject ? "active" : ""} ${projectConnection}`}
+                      onClick={() => runProject(profile.id)}
+                      disabled={connection === "connecting"}
+                      title={`${projectAction}: ${projectTitleOf(profile)}`}
+                    >
+                      <Folder className="project-icon" size={15} />
+                      <span className="project-name">{projectTitleOf(profile)}</span>
+                      <small className="project-path">{profile.projectPath}</small>
+                      <span className="project-status">
+                        {projectConnection === "connecting" ? (
+                          <Loader2 size={13} className="spin" />
+                        ) : projectConnection === "connected" ? (
+                          <Square size={12} />
+                        ) : (
+                          <Check size={13} />
+                        )}
+                        {projectAction}
+                      </span>
+                    </button>
+                  );
+                })}
               </section>
             ))}
             {profiles.length === 0 && (
