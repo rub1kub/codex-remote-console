@@ -116,6 +116,81 @@ const statusText: Record<ConnectionState, string> = {
   connected: "Подключено"
 };
 
+const messageRoleLabel: Record<ChatMessage["role"], string> = {
+  user: "Вы",
+  assistant: "Codex",
+  tool: "Терминал",
+  system: "Система"
+};
+
+const messageAvatarLabel: Record<ChatMessage["role"], string> = {
+  user: "Вы",
+  assistant: "C",
+  tool: "$",
+  system: "i"
+};
+
+function renderInlineText(text: string, keyPrefix: string) {
+  return text.split(/(`[^`\n]+`|\[[^\]\n]+\]\([^)]+\))/g).map((part, index) => {
+    const key = `${keyPrefix}-inline-${index}`;
+    const codeMatch = part.match(/^`([^`]+)`$/);
+    if (codeMatch) {
+      return (
+        <code key={key} className="inline-code">
+          {codeMatch[1]}
+        </code>
+      );
+    }
+
+    const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (linkMatch) {
+      return (
+        <span key={key} className="file-reference" title={linkMatch[2]}>
+          {linkMatch[1]}
+        </span>
+      );
+    }
+
+    return part;
+  });
+}
+
+function renderTextBlocks(message: ChatMessage) {
+  if (message.role === "tool") {
+    return (
+      <pre className={`message-code tool-output ${message.muted ? "muted" : ""}`}>
+        {message.text}
+      </pre>
+    );
+  }
+
+  return message.text
+    .split("```")
+    .map((part, index) => {
+      const key = `${message.id}-${index}`;
+      if (!part.trim()) return null;
+
+      if (index % 2 === 1) {
+        return (
+          <pre key={key} className={`message-code ${message.muted ? "muted" : ""}`}>
+            {part.trim()}
+          </pre>
+        );
+      }
+
+      return part
+        .split(/\n{2,}/)
+        .map((paragraph, paragraphIndex) =>
+          paragraph.trim() ? (
+            <p key={`${key}-${paragraphIndex}`} className={`message-text ${message.muted ? "muted" : ""}`}>
+              {renderInlineText(paragraph.trim(), `${key}-${paragraphIndex}`)}
+            </p>
+          ) : null
+        );
+    })
+    .flat();
+}
+
 function itemToMessage(item: ThreadItem): ChatMessage | null {
   if (item.type === "userMessage") {
     const text = (item.content ?? [])
@@ -919,11 +994,14 @@ export default function App() {
             messages.map((message) => (
               <article key={message.id} className={`message ${message.role}`}>
                 <div className="message-avatar">
-                  {message.role === "tool" ? <Terminal size={15} /> : message.role === "user" ? "Вы" : "C"}
+                  {message.role === "tool" ? <Terminal size={15} /> : messageAvatarLabel[message.role]}
                 </div>
                 <div className="message-body">
-                  {message.title && <strong>{message.title}</strong>}
-                  <pre className={message.muted ? "muted" : ""}>{message.text}</pre>
+                  <div className="message-head">
+                    <span className="message-author">{messageRoleLabel[message.role]}</span>
+                    {message.title && <span className="message-title">{message.title}</span>}
+                  </div>
+                  <div className="message-content">{renderTextBlocks(message)}</div>
                 </div>
               </article>
             ))
