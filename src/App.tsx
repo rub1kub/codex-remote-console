@@ -70,6 +70,14 @@ const emptyDraft: ProfileDraft = {
   sandboxMode: "danger-full-access"
 };
 
+const modelOptions = [
+  { value: "", label: "по умолчанию" },
+  { value: "gpt-5.5", label: "gpt-5.5" },
+  { value: "gpt-5.4", label: "gpt-5.4" },
+  { value: "gpt-5.4-mini", label: "gpt-5.4-mini" },
+  { value: "gpt-5.3-codex-spark", label: "gpt-5.3-codex-spark" }
+];
+
 const formatDate = (seconds: number) =>
   new Intl.DateTimeFormat("ru", {
     day: "2-digit",
@@ -1131,12 +1139,19 @@ export default function App() {
               </label>
               <label>
                 Модель
-                <input
+                <select
                   value={draft.model ?? ""}
-                  onChange={(event) => updateDraft({ model: event.target.value })}
-                  placeholder="по умолчанию"
-                  autoComplete="off"
-                />
+                  onChange={(event) => updateDraft({ model: event.target.value || undefined })}
+                >
+                  {modelOptions.map((option) => (
+                    <option key={option.value || "default"} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                  {draft.model && !modelOptions.some((option) => option.value === draft.model) && (
+                    <option value={draft.model}>{draft.model}</option>
+                  )}
+                </select>
               </label>
             </div>
 
