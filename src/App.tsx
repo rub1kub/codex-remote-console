@@ -95,7 +95,7 @@ const basenameOf = (value: string) => {
 };
 
 const projectTitleOf = (profile?: CodexProfile | null) => {
-  if (!profile) return "Добавьте проект";
+  if (!profile) return "Проект не выбран";
   const serverLabel = serverLabelOf(profile);
   return profile.name && profile.name !== serverLabel
     ? profile.name
@@ -762,13 +762,6 @@ export default function App() {
               <span>Рабочее место</span>
               <strong>{currentServerLabel}</strong>
             </div>
-            <button
-              className="icon-button"
-              onClick={() => openProfile(undefined, selectedProfile)}
-              title="Добавить проект"
-            >
-              <Plus size={16} />
-            </button>
           </div>
 
           <div className="connection-strip">
@@ -776,29 +769,29 @@ export default function App() {
               <span className={`connection-dot ${connection}`} />
               <div>
                 <strong>{currentProjectTitle}</strong>
-                <small>{selectedProfile?.projectPath || "Создайте проект на сервере"}</small>
+                <small>{selectedProfile?.projectPath || "Выберите папку проекта"}</small>
               </div>
             </div>
-            <button
-              className="connect-action"
-              onClick={!selectedProfileId ? () => openProfile() : connection === "connected" ? disconnect : connect}
-              disabled={connection === "connecting"}
-            >
-              {connection === "connecting" ? (
-                <Loader2 size={15} className="spin" />
-              ) : connection === "connected" ? (
-                <Square size={13} />
-              ) : (
-                <Check size={15} />
-              )}
-              {!selectedProfileId
-                ? "Добавить"
-                : connection === "connected"
+            {selectedProfileId && (
+              <button
+                className="connect-action"
+                onClick={connection === "connected" ? disconnect : connect}
+                disabled={connection === "connecting"}
+              >
+                {connection === "connecting" ? (
+                  <Loader2 size={15} className="spin" />
+                ) : connection === "connected" ? (
+                  <Square size={13} />
+                ) : (
+                  <Check size={15} />
+                )}
+                {connection === "connected"
                   ? "Отключить"
                   : connection === "connecting"
                     ? "Ждем"
                     : "Подключить"}
-            </button>
+              </button>
+            )}
           </div>
         </section>
 
