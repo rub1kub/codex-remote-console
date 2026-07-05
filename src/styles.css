@@ -32,7 +32,6 @@ button {
 button,
 .thread-row,
 .status-pill,
-.update-pill,
 .settings-drawer,
 .message,
 .composer textarea {
@@ -238,8 +237,7 @@ textarea:focus {
 .icon-button:disabled,
 .send-button:disabled,
 .primary-button:disabled,
-.secondary-button:disabled,
-.update-pill:disabled {
+.secondary-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
   box-shadow: none;
@@ -320,11 +318,14 @@ textarea:focus {
   display: grid;
   grid-template-rows: auto auto 1fr auto auto;
   min-width: 0;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   background: #ffffff;
 }
 
 .chat-header {
+  grid-row: 1;
   justify-content: space-between;
   gap: 20px;
   min-height: 68px;
@@ -387,50 +388,8 @@ textarea:focus {
   background: #fff8e6;
 }
 
-.update-pill {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 172px;
-  height: 34px;
-  overflow: hidden;
-  padding: 0 11px;
-  border: 1px solid #dce2dc;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #3b453f;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.update-pill strong {
-  margin-left: auto;
-  color: #67726b;
-  font-weight: 750;
-}
-
-.update-pill.available {
-  border-color: #9fd9cc;
-  background: #effaf7;
-  color: #0f6f5f;
-}
-
-.update-pill.available strong {
-  color: #0f6f5f;
-}
-
-.update-pill.working::after {
-  position: absolute;
-  inset: 0;
-  content: "";
-  background: linear-gradient(90deg, transparent, rgba(32, 144, 123, 0.14), transparent);
-  transform: translateX(-100%);
-  animation: shimmer 1.25s ease-in-out infinite;
-}
-
 .error-banner {
+  grid-row: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -455,11 +414,18 @@ textarea:focus {
 }
 
 .messages {
+  grid-row: 3;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  min-height: 0;
   overflow: auto;
   padding: 28px;
+}
+
+.messages::before {
+  content: "";
+  margin-top: auto;
 }
 
 .message {
@@ -470,7 +436,9 @@ textarea:focus {
   display: grid;
   place-items: center;
   align-content: center;
-  min-height: 55vh;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 28px 0 8px;
   color: #778079;
   text-align: center;
 }
@@ -552,6 +520,7 @@ textarea:focus {
 }
 
 .composer {
+  grid-row: 4;
   gap: 10px;
   padding: 14px 28px 22px;
   border-top: 1px solid #eaede9;
@@ -574,6 +543,7 @@ textarea:focus {
 }
 
 .diagnostics {
+  grid-row: 5;
   padding: 0 28px 16px;
   color: #68736c;
   font-size: 12px;
@@ -937,7 +907,6 @@ textarea:focus {
 .theme-dark textarea,
 .theme-dark .icon-button,
 .theme-dark .secondary-button,
-.theme-dark .update-pill,
 .theme-dark .search-box,
 .theme-dark .password-field,
 .theme-dark .segmented-control button,
@@ -964,7 +933,6 @@ textarea:focus {
   color: #111513;
 }
 
-.theme-dark .update-pill.available,
 .theme-dark .segmented-control button.selected {
   border-color: #318d7c;
   background: #12332d;
@@ -1016,17 +984,6 @@ textarea:focus {
 
   .header-actions {
     gap: 6px;
-  }
-
-  .update-pill {
-    min-width: 40px;
-    width: 40px;
-    padding: 0;
-  }
-
-  .update-pill span,
-  .update-pill strong {
-    display: none;
   }
 
   .settings-drawer {

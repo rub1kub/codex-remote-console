@@ -609,33 +609,6 @@ export default function App() {
             <p>{selectedProfile?.projectPath || "Выберите сервер и директорию проекта"}</p>
           </div>
           <div className="header-actions">
-            <button
-              className={`update-pill ${cliStatus?.updateAvailable ? "available" : ""} ${isCliWorking ? "working" : ""}`}
-              onClick={cliStatus?.updateAvailable ? updateCodexCli : checkCodexCli}
-              disabled={!selectedProfileId || isCliWorking}
-              aria-label={cliStatus?.updateAvailable ? "Обновить Codex CLI" : "Проверить обновления Codex CLI"}
-              title={cliStatus?.command || preferences.defaultUpdateCommand}
-            >
-              {isCliWorking ? (
-                <Loader2 size={15} className="spin" />
-              ) : cliStatus?.updateAvailable ? (
-                <Download size={15} />
-              ) : (
-                <RefreshCw size={15} />
-              )}
-              <span>Codex CLI</span>
-              <strong>
-                {cliPhase === "updating"
-                  ? "обновляю"
-                  : cliPhase === "checking"
-                    ? "проверяю"
-                    : cliStatus?.updateAvailable
-                      ? `${cliStatus.installed} -> ${cliStatus.latest}`
-                      : cliStatus?.installed
-                        ? cliStatus.installed
-                        : "проверить"}
-              </strong>
-            </button>
             <button className="icon-button" onClick={() => setSettingsOpen(true)} title="Настройки">
               <SlidersHorizontal size={16} />
             </button>
