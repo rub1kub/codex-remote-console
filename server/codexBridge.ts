@@ -213,7 +213,7 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
 
   async listThreads(options: ThreadListOptions = {}) {
     return this.request("thread/list", {
-      limit: 80,
+      limit: options.limit ?? 80,
       sortKey: "updated_at",
       sortDirection: "desc",
       archived: options.archived ?? false,

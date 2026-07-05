@@ -12,6 +12,8 @@
 - продолжает выбранную сессию через `thread/resume` + `turn/start`;
 - стримит ответы, команды и изменения файлов через JSON-RPC notifications;
 - поддерживает одноразовый SSH password input без сохранения пароля;
+- проверяет установленную/последнюю версию `codex-cli` и запускает обновление кнопкой;
+- имеет настройки темы, анимаций, истории, diagnostics и поведения composer;
 - по умолчанию повторяет привычный `codex --yolo`: `approvalPolicy=never`, `sandbox=danger-full-access`.
 
 ## Запуск
@@ -90,11 +92,18 @@ flowchart LR
 - `Approval`: `never`
 - `Sandbox`: `danger-full-access`
 - `Password`: опционально, не сохраняется
+- `Codex update command`: опционально, переопределяет команду обновления для конкретного сервера
 
 Профили лежат в:
 
 ```text
 ~/.codex-remote-console/profiles.json
+```
+
+Default update command:
+
+```bash
+CODEX_NON_INTERACTIVE=1 codex update || npm install -g @openai/codex@latest
 ```
 
 ## Проверки

@@ -7,9 +7,12 @@ import { CodexBridge } from "./codexBridge";
 import {
   deleteProfile,
   getProfile,
+  getPreferences,
   listProfiles,
+  savePreferences,
   saveProfile
 } from "./profiles";
+import { checkCodexCli, updateCodexCli } from "./remoteExec";
 
 type StartServerOptions = {
   host?: string;
@@ -50,6 +53,22 @@ export async function startServer(
   app.get("/api/profiles", async (_request, response, next) => {
     try {
       response.json({ profiles: await listProfiles() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/preferences", async (_request, response, next) => {
+    try {
+      response.json({ preferences: await getPreferences() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/preferences", async (request, response, next) => {
+    try {
+      response.json({ preferences: await savePreferences(request.body) });
     } catch (error) {
       next(error);
     }
@@ -128,7 +147,54 @@ export async function startServer(
           wireBridge(bridge);
           await bridge.start();
           send(ws, { type: "connection", status: "connected", profile });
-          send(ws, { type: "threads", result: await bridge.listThreads() });
+          send(ws, {
+            type: "threads",
+            result: await bridge.listThreads({
+              limit: (await getPreferences()).historyLimit
+            })
+          });
+          return;
+        }
+
+        if (message.type === "checkCodexCli") {
+          if (!message.profileId) throw new Error("profileId is required.");
+          const profile = await getProfile(message.profileId);
+          if (!profile) throw new Error("Profile not found.");
+          send(ws, {
+            type: "codexCli",
+            phase: "checking",
+            result: null
+          });
+          send(ws, {
+            type: "codexCli",
+            phase: "checked",
+            result: await checkCodexCli(
+              profile,
+              { password: message.password?.trim() || undefined },
+              await getPreferences()
+            )
+          });
+          return;
+        }
+
+        if (message.type === "updateCodexCli") {
+          if (!message.profileId) throw new Error("profileId is required.");
+          const profile = await getProfile(message.profileId);
+          if (!profile) throw new Error("Profile not found.");
+          send(ws, {
+            type: "codexCli",
+            phase: "updating",
+            result: null
+          });
+          send(ws, {
+            type: "codexCli",
+            phase: "updated",
+            result: await updateCodexCli(
+              profile,
+              { password: message.password?.trim() || undefined },
+              await getPreferences()
+            )
+          });
           return;
         }
 
@@ -145,7 +211,10 @@ export async function startServer(
         if (message.type === "listThreads") {
           send(ws, {
             type: "threads",
-            result: await bridge.listThreads({ searchTerm: message.searchTerm })
+            result: await bridge.listThreads({
+              searchTerm: message.searchTerm,
+              limit: (await getPreferences()).historyLimit
+            })
           });
         } else if (message.type === "newThread") {
           send(ws, { type: "thread", result: await bridge.startThread() });

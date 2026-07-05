@@ -2,15 +2,21 @@ import {
   ArrowUp,
   Check,
   Circle,
+  Download,
   History,
   KeyRound,
   Loader2,
   MessageSquare,
+  Monitor,
+  Moon,
   Plus,
+  RefreshCw,
   Search,
   Server,
   Settings,
+  SlidersHorizontal,
   Square,
+  Sun,
   Terminal,
   Trash2,
   X
@@ -18,7 +24,9 @@ import {
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
+  AppPreferences,
   ChatMessage,
+  CodexCliStatus,
   CodexProfile,
   CodexThread,
   ServerMessage,
@@ -30,12 +38,28 @@ type ProfileDraft = Omit<CodexProfile, "id" | "createdAt" | "updatedAt"> & {
   password?: string;
 };
 
+const defaultUpdateCommand =
+  "CODEX_NON_INTERACTIVE=1 codex update || npm install -g @openai/codex@latest";
+
+const defaultPreferences: AppPreferences = {
+  theme: "system",
+  animations: true,
+  compactMode: false,
+  autoCheckUpdates: true,
+  autoRefreshHistory: true,
+  enterToSend: true,
+  showDiagnostics: false,
+  historyLimit: 80,
+  defaultUpdateCommand
+};
+
 const emptyDraft: ProfileDraft = {
   name: "",
   mode: "ssh",
   sshTarget: "",
   projectPath: "",
   codexBin: "codex",
+  updateCommand: "",
   approvalPolicy: "never",
   sandboxMode: "danger-full-access"
 };
@@ -128,12 +152,19 @@ export default function App() {
   const [editingProfile, setEditingProfile] = useState<CodexProfile | null>(null);
   const [draft, setDraft] = useState<ProfileDraft>(emptyDraft);
   const [sessionPasswords, setSessionPasswords] = useState<Record<string, string>>({});
+  const [preferences, setPreferences] = useState<AppPreferences>(defaultPreferences);
+  const [isSettingsOpen, setSettingsOpen] = useState(false);
+  const [cliStatus, setCliStatus] = useState<CodexCliStatus | null>(null);
+  const [cliPhase, setCliPhase] = useState<"idle" | "checking" | "checked" | "updating" | "updated">("idle");
   const [error, setError] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const [isBusy, setBusy] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
+  const preferencesRef = useRef(preferences);
+  const sessionPasswordsRef = useRef(sessionPasswords);
+  const searchRef = useRef(search);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId),
@@ -142,7 +173,20 @@ export default function App() {
 
   useEffect(() => {
     void loadProfiles();
+    void loadPreferences();
   }, []);
+
+  useEffect(() => {
+    preferencesRef.current = preferences;
+  }, [preferences]);
+
+  useEffect(() => {
+    sessionPasswordsRef.current = sessionPasswords;
+  }, [sessionPasswords]);
+
+  useEffect(() => {
+    searchRef.current = search;
+  }, [search]);
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -173,6 +217,26 @@ export default function App() {
     setSelectedProfileId((current) => current || data.profiles[0]?.id || "");
   }
 
+  async function loadPreferences() {
+    const response = await fetch("/api/preferences");
+    const data = (await response.json()) as { preferences: AppPreferences };
+    setPreferences({ ...defaultPreferences, ...data.preferences });
+  }
+
+  async function updatePreferences(patch: Partial<AppPreferences>) {
+    const next = { ...preferences, ...patch };
+    setPreferences(next);
+    const response = await fetch("/api/preferences", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch)
+    });
+    const data = (await response.json()) as { preferences?: AppPreferences };
+    if (data.preferences) {
+      setPreferences({ ...defaultPreferences, ...data.preferences });
+    }
+  }
+
   function send(payload: unknown) {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(payload));
@@ -185,11 +249,30 @@ export default function App() {
     if (message.type === "connection") {
       setConnection(message.status);
       setCodexStatus(message.status);
+      if (
+        message.status === "connected" &&
+        message.profile?.id &&
+        preferencesRef.current.autoCheckUpdates
+      ) {
+        send({
+          type: "checkCodexCli",
+          profileId: message.profile.id,
+          password: sessionPasswordsRef.current[message.profile.id] || undefined
+        });
+      }
       return;
     }
 
     if (message.type === "codexStatus") {
       setCodexStatus(message.status);
+      return;
+    }
+
+    if (message.type === "codexCli") {
+      setCliPhase(message.phase);
+      if (message.result) {
+        setCliStatus(message.result);
+      }
       return;
     }
 
@@ -277,7 +360,9 @@ export default function App() {
 
     if (method === "turn/completed") {
       setBusy(false);
-      send({ type: "listThreads", searchTerm: search });
+      if (preferencesRef.current.autoRefreshHistory) {
+        send({ type: "listThreads", searchTerm: searchRef.current });
+      }
     }
   }
 
@@ -292,6 +377,32 @@ export default function App() {
     setConnection("connecting");
     send({
       type: "connect",
+      profileId: selectedProfileId,
+      password: sessionPasswords[selectedProfileId] || undefined
+    });
+  }
+
+  function checkCodexCli() {
+    if (!selectedProfileId) {
+      setProfileOpen(true);
+      return;
+    }
+    setCliPhase("checking");
+    send({
+      type: "checkCodexCli",
+      profileId: selectedProfileId,
+      password: sessionPasswords[selectedProfileId] || undefined
+    });
+  }
+
+  function updateCodexCli() {
+    if (!selectedProfileId) {
+      setProfileOpen(true);
+      return;
+    }
+    setCliPhase("updating");
+    send({
+      type: "updateCodexCli",
       profileId: selectedProfileId,
       password: sessionPasswords[selectedProfileId] || undefined
     });
@@ -345,6 +456,7 @@ export default function App() {
             projectPath: profile.projectPath,
             codexBin: profile.codexBin,
             model: profile.model,
+            updateCommand: profile.updateCommand,
             approvalPolicy: profile.approvalPolicy,
             sandboxMode: profile.sandboxMode,
             password: sessionPasswords[profile.id] ?? ""
@@ -394,9 +506,18 @@ export default function App() {
   }
 
   const canSend = connection === "connected" && input.trim().length > 0;
+  const isCliWorking = cliPhase === "checking" || cliPhase === "updating";
+  const rootClassName = [
+    "app-shell",
+    `theme-${preferences.theme}`,
+    preferences.animations ? "motion-on" : "motion-off",
+    preferences.compactMode ? "compact-mode" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
-    <main className="app-shell">
+    <main className={rootClassName}>
       <aside className="sidebar">
         <section className="profile-box">
           <label>Сервер</label>
@@ -487,9 +608,41 @@ export default function App() {
             <h1>{titleOf(activeThread)}</h1>
             <p>{selectedProfile?.projectPath || "Выберите сервер и директорию проекта"}</p>
           </div>
-          <div className={`status-pill ${connection}`}>
-            <Circle size={8} fill="currentColor" />
-            {connection === "connected" ? "Connected" : connection === "connecting" ? "Connecting" : "Idle"}
+          <div className="header-actions">
+            <button
+              className={`update-pill ${cliStatus?.updateAvailable ? "available" : ""} ${isCliWorking ? "working" : ""}`}
+              onClick={cliStatus?.updateAvailable ? updateCodexCli : checkCodexCli}
+              disabled={!selectedProfileId || isCliWorking}
+              aria-label={cliStatus?.updateAvailable ? "Обновить Codex CLI" : "Проверить обновления Codex CLI"}
+              title={cliStatus?.command || preferences.defaultUpdateCommand}
+            >
+              {isCliWorking ? (
+                <Loader2 size={15} className="spin" />
+              ) : cliStatus?.updateAvailable ? (
+                <Download size={15} />
+              ) : (
+                <RefreshCw size={15} />
+              )}
+              <span>Codex CLI</span>
+              <strong>
+                {cliPhase === "updating"
+                  ? "обновляю"
+                  : cliPhase === "checking"
+                    ? "проверяю"
+                    : cliStatus?.updateAvailable
+                      ? `${cliStatus.installed} -> ${cliStatus.latest}`
+                      : cliStatus?.installed
+                        ? cliStatus.installed
+                        : "проверить"}
+              </strong>
+            </button>
+            <button className="icon-button" onClick={() => setSettingsOpen(true)} title="Настройки">
+              <SlidersHorizontal size={16} />
+            </button>
+            <div className={`status-pill ${connection}`}>
+              <Circle size={8} fill="currentColor" />
+              {connection === "connected" ? "Connected" : connection === "connecting" ? "Connecting" : "Idle"}
+            </div>
           </div>
         </header>
 
@@ -533,7 +686,7 @@ export default function App() {
             disabled={connection !== "connected"}
             rows={1}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+              if (preferences.enterToSend && event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
                 submit(event);
               }
@@ -550,7 +703,7 @@ export default function App() {
           )}
         </form>
 
-        {logs.length > 0 && (
+        {preferences.showDiagnostics && logs.length > 0 && (
           <details className="diagnostics">
             <summary>Diagnostics</summary>
             {logs.map((line, index) => (
@@ -650,20 +803,29 @@ export default function App() {
               <label>
                 Codex binary
                 <input
-                  value={draft.codexBin}
-                  onChange={(event) => setDraft({ ...draft, codexBin: event.target.value })}
-                  placeholder="codex"
-                />
-              </label>
+                value={draft.codexBin}
+                onChange={(event) => setDraft({ ...draft, codexBin: event.target.value })}
+                placeholder="codex"
+              />
+            </label>
               <label>
                 Model
                 <input
                   value={draft.model ?? ""}
                   onChange={(event) => setDraft({ ...draft, model: event.target.value })}
-                  placeholder="default"
-                />
-              </label>
-            </div>
+                placeholder="default"
+              />
+            </label>
+          </div>
+
+            <label>
+              Codex update command
+              <input
+                value={draft.updateCommand ?? ""}
+                onChange={(event) => setDraft({ ...draft, updateCommand: event.target.value })}
+                placeholder={preferences.defaultUpdateCommand}
+              />
+            </label>
 
             <div className="two-fields">
               <label>
@@ -708,6 +870,135 @@ export default function App() {
               <button type="submit" className="primary-button">Сохранить</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {isSettingsOpen && (
+        <div className="settings-backdrop" role="presentation">
+          <aside className="settings-drawer" aria-label="Настройки">
+            <div className="modal-head">
+              <div>
+                <h2>Настройки</h2>
+                <p>Поведение приложения и Codex CLI</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setSettingsOpen(false)}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <section className="settings-section">
+              <h3>Codex CLI</h3>
+              <div className="cli-status-card">
+                <div>
+                  <span>Версия</span>
+                  <strong>{cliStatus?.installed || "не проверено"}</strong>
+                </div>
+                <div>
+                  <span>Latest</span>
+                  <strong>{cliStatus?.latest || "-"}</strong>
+                </div>
+                <button className="secondary-button" onClick={checkCodexCli} disabled={!selectedProfileId || isCliWorking}>
+                  {cliPhase === "checking" ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}
+                  Проверить
+                </button>
+                <button
+                  className="primary-button"
+                  onClick={updateCodexCli}
+                  disabled={!selectedProfileId || isCliWorking || !cliStatus?.updateAvailable}
+                >
+                  {cliPhase === "updating" ? <Loader2 size={15} className="spin" /> : <Download size={15} />}
+                  Обновить
+                </button>
+              </div>
+              <label>
+                Команда обновления по умолчанию
+                <input
+                  value={preferences.defaultUpdateCommand}
+                  onChange={(event) => void updatePreferences({ defaultUpdateCommand: event.target.value })}
+                />
+              </label>
+              <label className="toggle-row">
+                <span>Проверять обновления при подключении</span>
+                <input
+                  type="checkbox"
+                  checked={preferences.autoCheckUpdates}
+                  onChange={(event) => void updatePreferences({ autoCheckUpdates: event.target.checked })}
+                />
+              </label>
+            </section>
+
+            <section className="settings-section">
+              <h3>Внешний вид</h3>
+              <div className="segmented-control">
+                <button className={preferences.theme === "light" ? "selected" : ""} onClick={() => void updatePreferences({ theme: "light" })}>
+                  <Sun size={15} />
+                  Светлая
+                </button>
+                <button className={preferences.theme === "dark" ? "selected" : ""} onClick={() => void updatePreferences({ theme: "dark" })}>
+                  <Moon size={15} />
+                  Темная
+                </button>
+                <button className={preferences.theme === "system" ? "selected" : ""} onClick={() => void updatePreferences({ theme: "system" })}>
+                  <Monitor size={15} />
+                  Система
+                </button>
+              </div>
+              <label className="toggle-row">
+                <span>Анимации и живые индикаторы</span>
+                <input
+                  type="checkbox"
+                  checked={preferences.animations}
+                  onChange={(event) => void updatePreferences({ animations: event.target.checked })}
+                />
+              </label>
+              <label className="toggle-row">
+                <span>Компактный режим</span>
+                <input
+                  type="checkbox"
+                  checked={preferences.compactMode}
+                  onChange={(event) => void updatePreferences({ compactMode: event.target.checked })}
+                />
+              </label>
+            </section>
+
+            <section className="settings-section">
+              <h3>Поведение</h3>
+              <label className="toggle-row">
+                <span>Enter отправляет сообщение</span>
+                <input
+                  type="checkbox"
+                  checked={preferences.enterToSend}
+                  onChange={(event) => void updatePreferences({ enterToSend: event.target.checked })}
+                />
+              </label>
+              <label className="toggle-row">
+                <span>Обновлять историю после ответа</span>
+                <input
+                  type="checkbox"
+                  checked={preferences.autoRefreshHistory}
+                  onChange={(event) => void updatePreferences({ autoRefreshHistory: event.target.checked })}
+                />
+              </label>
+              <label className="toggle-row">
+                <span>Показывать diagnostics</span>
+                <input
+                  type="checkbox"
+                  checked={preferences.showDiagnostics}
+                  onChange={(event) => void updatePreferences({ showDiagnostics: event.target.checked })}
+                />
+              </label>
+              <label>
+                Лимит истории
+                <input
+                  type="number"
+                  min={10}
+                  max={300}
+                  value={preferences.historyLimit}
+                  onChange={(event) => void updatePreferences({ historyLimit: Number(event.target.value) })}
+                />
+              </label>
+            </section>
+          </aside>
         </div>
       )}
     </main>

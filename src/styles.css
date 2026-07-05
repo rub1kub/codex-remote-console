@@ -29,6 +29,26 @@ button {
   border: 0;
 }
 
+button,
+.thread-row,
+.status-pill,
+.update-pill,
+.settings-drawer,
+.message,
+.composer textarea {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 180ms ease,
+    transform 160ms ease,
+    opacity 160ms ease;
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 292px 1fr;
@@ -171,6 +191,28 @@ textarea:focus {
   background: #202422;
   color: #ffffff;
   font-weight: 650;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.primary-button:hover:not(:disabled),
+.send-button:hover:not(:disabled) {
+  background: #111513;
+  box-shadow: 0 10px 28px rgba(20, 28, 24, 0.16);
+}
+
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid #d7ddd7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #33413a;
+  cursor: pointer;
+  font-weight: 650;
 }
 
 .text-button {
@@ -186,10 +228,21 @@ textarea:focus {
   color: #33413a;
 }
 
+.icon-button:hover:not(:disabled),
+.secondary-button:hover:not(:disabled),
+.text-button:hover {
+  background: #f8faf8;
+  border-color: #c8d2ca;
+}
+
 .icon-button:disabled,
-.send-button:disabled {
+.send-button:disabled,
+.primary-button:disabled,
+.secondary-button:disabled,
+.update-pill:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+  box-shadow: none;
 }
 
 .history-head {
@@ -247,6 +300,8 @@ textarea:focus {
 .thread-row:hover,
 .thread-row.active {
   background: #ffffff;
+  box-shadow: 0 1px 0 rgba(25, 32, 27, 0.04);
+  transform: translateX(2px);
 }
 
 .thread-row span {
@@ -277,6 +332,12 @@ textarea:focus {
   border-bottom: 1px solid #eaede9;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .chat-header h1 {
   max-width: min(700px, 60vw);
   margin: 0;
@@ -305,16 +366,68 @@ textarea:focus {
   font-weight: 700;
 }
 
+.status-pill svg {
+  filter: drop-shadow(0 0 4px currentColor);
+}
+
 .status-pill.connected {
   border-color: #b8ddd2;
   color: #13735f;
   background: #eef8f4;
 }
 
+.status-pill.connected svg,
+.status-pill.connecting svg {
+  animation: pulseDot 1.7s ease-in-out infinite;
+}
+
 .status-pill.connecting {
   border-color: #ead7a4;
   color: #8a651a;
   background: #fff8e6;
+}
+
+.update-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 172px;
+  height: 34px;
+  overflow: hidden;
+  padding: 0 11px;
+  border: 1px solid #dce2dc;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #3b453f;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.update-pill strong {
+  margin-left: auto;
+  color: #67726b;
+  font-weight: 750;
+}
+
+.update-pill.available {
+  border-color: #9fd9cc;
+  background: #effaf7;
+  color: #0f6f5f;
+}
+
+.update-pill.available strong {
+  color: #0f6f5f;
+}
+
+.update-pill.working::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgba(32, 144, 123, 0.14), transparent);
+  transform: translateX(-100%);
+  animation: shimmer 1.25s ease-in-out infinite;
 }
 
 .error-banner {
@@ -347,6 +460,10 @@ textarea:focus {
   gap: 18px;
   overflow: auto;
   padding: 28px;
+}
+
+.message {
+  animation: messageIn 220ms ease both;
 }
 
 .welcome {
@@ -440,6 +557,11 @@ textarea:focus {
   border-top: 1px solid #eaede9;
 }
 
+.composer:focus-within textarea {
+  border-color: #20907b;
+  box-shadow: 0 0 0 3px rgba(32, 144, 123, 0.12);
+}
+
 .send-button {
   width: 40px;
   flex: 0 0 40px;
@@ -476,6 +598,7 @@ textarea:focus {
   place-items: center;
   padding: 20px;
   background: rgba(22, 28, 24, 0.24);
+  animation: fadeIn 160ms ease both;
 }
 
 .profile-modal {
@@ -489,6 +612,7 @@ textarea:focus {
   border-radius: 8px;
   background: #ffffff;
   box-shadow: 0 18px 70px rgba(24, 30, 26, 0.18);
+  animation: modalIn 180ms ease both;
 }
 
 .modal-head {
@@ -522,6 +646,156 @@ textarea:focus {
   color: #9b2d2d;
 }
 
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(22, 28, 24, 0.18);
+  animation: fadeIn 160ms ease both;
+}
+
+.settings-drawer {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  width: min(420px, 100%);
+  height: 100vh;
+  overflow: auto;
+  padding: 18px;
+  border-left: 1px solid #dfe4df;
+  background: #ffffff;
+  box-shadow: -20px 0 70px rgba(24, 30, 26, 0.14);
+  animation: drawerIn 210ms ease both;
+}
+
+.modal-head p {
+  margin: 4px 0 0;
+  color: #69736c;
+  font-size: 12px;
+}
+
+.settings-section {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e1e6e1;
+  border-radius: 8px;
+  background: #fbfcfb;
+}
+
+.settings-section h3 {
+  margin: 0;
+  color: #303833;
+  font-size: 13px;
+}
+
+.settings-section label {
+  display: grid;
+  gap: 6px;
+  color: #505a53;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.toggle-row {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.toggle-row input {
+  width: 38px;
+  height: 22px;
+  padding: 0;
+  appearance: none;
+  position: relative;
+  border: 0;
+  border-radius: 999px;
+  background: #d7ddd7;
+  accent-color: #168a75;
+  cursor: pointer;
+}
+
+.toggle-row input::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(20, 28, 24, 0.18);
+  content: "";
+  transition: transform 170ms ease;
+}
+
+.toggle-row input:checked {
+  background: #168a75;
+}
+
+.toggle-row input:checked::after {
+  transform: translateX(16px);
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.segmented-control button {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  min-height: 64px;
+  border: 1px solid #d7ddd7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #4b554f;
+  cursor: pointer;
+}
+
+.segmented-control button.selected {
+  border-color: #75cabc;
+  background: #effaf7;
+  color: #0f6f5f;
+  box-shadow: 0 0 0 3px rgba(32, 144, 123, 0.09);
+}
+
+.cli-status-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.cli-status-card > div {
+  display: grid;
+  gap: 4px;
+  min-height: 52px;
+  padding: 10px;
+  border: 1px solid #e1e6e1;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.cli-status-card span {
+  color: #7a837d;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.cli-status-card strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #202422;
+  font-size: 13px;
+}
+
+.cli-status-card button {
+  width: 100%;
+}
+
 .spin {
   animation: spin 0.9s linear infinite;
 }
@@ -530,6 +804,179 @@ textarea:focus {
   to {
     transform: rotate(360deg);
   }
+}
+
+@keyframes pulseDot {
+  0%,
+  100% {
+    opacity: 0.58;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.16);
+  }
+}
+
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes messageIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes drawerIn {
+  from {
+    transform: translateX(24px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.motion-off * {
+  animation: none !important;
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-on * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+.compact-mode .sidebar {
+  gap: 10px;
+}
+
+.compact-mode .messages {
+  gap: 12px;
+  padding-top: 20px;
+  padding-bottom: 20px;
+}
+
+.compact-mode .chat-header {
+  min-height: 58px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.theme-dark {
+  background: #111513;
+  color: #e7ece8;
+}
+
+.theme-dark .sidebar {
+  border-color: #27302b;
+  background: #171d19;
+}
+
+.theme-dark .chat,
+.theme-dark .settings-drawer,
+.theme-dark .profile-modal {
+  background: #111513;
+}
+
+.theme-dark .chat-header,
+.theme-dark .composer {
+  border-color: #27302b;
+}
+
+.theme-dark .chat-header h1,
+.theme-dark .welcome h2,
+.theme-dark .message-body pre,
+.theme-dark .settings-section h3,
+.theme-dark .cli-status-card strong {
+  color: #edf3ef;
+}
+
+.theme-dark .profile-box label,
+.theme-dark .profile-modal label,
+.theme-dark .settings-section label,
+.theme-dark .modal-head p,
+.theme-dark .chat-header p,
+.theme-dark .thread-row small,
+.theme-dark .empty-note,
+.theme-dark .welcome p {
+  color: #9aa69e;
+}
+
+.theme-dark select,
+.theme-dark input,
+.theme-dark textarea,
+.theme-dark .icon-button,
+.theme-dark .secondary-button,
+.theme-dark .update-pill,
+.theme-dark .search-box,
+.theme-dark .password-field,
+.theme-dark .segmented-control button,
+.theme-dark .cli-status-card > div {
+  border-color: #2b352f;
+  background: #171d19;
+  color: #e7ece8;
+}
+
+.theme-dark .settings-section,
+.theme-dark .message.tool .message-body {
+  border-color: #2b352f;
+  background: #151a17;
+}
+
+.theme-dark .thread-row:hover,
+.theme-dark .thread-row.active {
+  background: #202822;
+}
+
+.theme-dark .primary-button,
+.theme-dark .send-button {
+  background: #e7ece8;
+  color: #111513;
+}
+
+.theme-dark .update-pill.available,
+.theme-dark .segmented-control button.selected {
+  border-color: #318d7c;
+  background: #12332d;
+  color: #95eadb;
+}
+
+.theme-dark .toggle-row input {
+  background: #39443d;
+}
+
+.theme-dark .toggle-row input:checked {
+  background: #168a75;
 }
 
 @media (max-width: 840px) {
@@ -565,5 +1012,24 @@ textarea:focus {
 
   .two-fields {
     grid-template-columns: 1fr;
+  }
+
+  .header-actions {
+    gap: 6px;
+  }
+
+  .update-pill {
+    min-width: 40px;
+    width: 40px;
+    padding: 0;
+  }
+
+  .update-pill span,
+  .update-pill strong {
+    display: none;
+  }
+
+  .settings-drawer {
+    width: 100%;
   }
 }

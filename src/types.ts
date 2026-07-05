@@ -14,8 +14,34 @@ export type CodexProfile = {
   model?: string;
   approvalPolicy: ApprovalPolicy;
   sandboxMode: SandboxMode;
+  updateCommand?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AppPreferences = {
+  theme: "system" | "light" | "dark";
+  animations: boolean;
+  compactMode: boolean;
+  autoCheckUpdates: boolean;
+  autoRefreshHistory: boolean;
+  enterToSend: boolean;
+  showDiagnostics: boolean;
+  historyLimit: number;
+  defaultUpdateCommand: string;
+};
+
+export type CodexCliStatus = {
+  installed: string;
+  latest: string;
+  path: string;
+  updateAvailable: boolean;
+  command: string;
+  stdout: string;
+  stderr: string;
+  updateExitCode?: number | null;
+  updateStdout?: string;
+  updateStderr?: string;
 };
 
 export type ThreadItem = {
@@ -66,5 +92,6 @@ export type ServerMessage =
   | { type: "turn"; result: { turn: Turn } }
   | { type: "notification"; message: { method: string; params: any } }
   | { type: "log"; line: string }
+  | { type: "codexCli"; phase: "checking" | "checked" | "updating" | "updated"; result: CodexCliStatus | null }
   | { type: "error"; message: string }
   | { type: "interrupt"; result: unknown };

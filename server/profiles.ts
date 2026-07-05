@@ -3,10 +3,26 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { CodexProfile, ProfileInput } from "./types";
+import type { AppPreferences, CodexProfile, ProfileInput } from "./types";
 
 type Store = {
   profiles: CodexProfile[];
+  preferences: AppPreferences;
+};
+
+const defaultUpdateCommand =
+  "CODEX_NON_INTERACTIVE=1 codex update || npm install -g @openai/codex@latest";
+
+const defaultPreferences: AppPreferences = {
+  theme: "system",
+  animations: true,
+  compactMode: false,
+  autoCheckUpdates: true,
+  autoRefreshHistory: true,
+  enterToSend: true,
+  showDiagnostics: false,
+  historyLimit: 80,
+  defaultUpdateCommand
 };
 
 const dataDir =
@@ -19,11 +35,14 @@ const now = () => new Date().toISOString();
 async function readStore(): Promise<Store> {
   try {
     const raw = await readFile(storePath, "utf8");
-    const parsed = JSON.parse(raw) as Store;
-    return { profiles: Array.isArray(parsed.profiles) ? parsed.profiles : [] };
+    const parsed = JSON.parse(raw) as Partial<Store>;
+    return {
+      profiles: Array.isArray(parsed.profiles) ? parsed.profiles : [],
+      preferences: normalizePreferences(parsed.preferences)
+    };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { profiles: [] };
+      return { profiles: [], preferences: defaultPreferences };
     }
     throw error;
   }
@@ -53,6 +72,48 @@ function validateTarget(target: string) {
   if (/[\r\n\t ]/.test(target)) {
     throw new Error("SSH target must be one OpenSSH target, for example devbox or user@host.");
   }
+}
+
+function normalizePreferences(input?: Partial<AppPreferences>): AppPreferences {
+  const historyLimit = Number(input?.historyLimit);
+  return {
+    ...defaultPreferences,
+    ...input,
+    theme: ["system", "light", "dark"].includes(input?.theme ?? "")
+      ? input!.theme!
+      : defaultPreferences.theme,
+    animations:
+      typeof input?.animations === "boolean"
+        ? input.animations
+        : defaultPreferences.animations,
+    compactMode:
+      typeof input?.compactMode === "boolean"
+        ? input.compactMode
+        : defaultPreferences.compactMode,
+    autoCheckUpdates:
+      typeof input?.autoCheckUpdates === "boolean"
+        ? input.autoCheckUpdates
+        : defaultPreferences.autoCheckUpdates,
+    autoRefreshHistory:
+      typeof input?.autoRefreshHistory === "boolean"
+        ? input.autoRefreshHistory
+        : defaultPreferences.autoRefreshHistory,
+    enterToSend:
+      typeof input?.enterToSend === "boolean"
+        ? input.enterToSend
+        : defaultPreferences.enterToSend,
+    showDiagnostics:
+      typeof input?.showDiagnostics === "boolean"
+        ? input.showDiagnostics
+        : defaultPreferences.showDiagnostics,
+    historyLimit:
+      Number.isInteger(historyLimit) && historyLimit >= 10 && historyLimit <= 300
+        ? historyLimit
+        : defaultPreferences.historyLimit,
+    defaultUpdateCommand:
+      cleanText(input?.defaultUpdateCommand, defaultPreferences.defaultUpdateCommand) ||
+      defaultPreferences.defaultUpdateCommand
+  };
 }
 
 function normalizeProfile(input: ProfileInput, previous?: CodexProfile): CodexProfile {
@@ -85,6 +146,7 @@ function normalizeProfile(input: ProfileInput, previous?: CodexProfile): CodexPr
       input.approvalPolicy ?? previous?.approvalPolicy ?? "never",
     sandboxMode:
       input.sandboxMode ?? previous?.sandboxMode ?? "danger-full-access",
+    updateCommand: cleanText(input.updateCommand, previous?.updateCommand ?? ""),
     createdAt: previous?.createdAt ?? timestamp,
     updatedAt: timestamp
   };
@@ -118,7 +180,19 @@ export async function saveProfile(input: ProfileInput, id?: string) {
 export async function deleteProfile(id: string) {
   const store = await readStore();
   const next = store.profiles.filter((profile) => profile.id !== id);
-  await writeStore({ profiles: next });
+  await writeStore({ ...store, profiles: next });
   return next.length !== store.profiles.length;
 }
 
+export async function getPreferences() {
+  return (await readStore()).preferences;
+}
+
+export async function savePreferences(input: Partial<AppPreferences>) {
+  const store = await readStore();
+  const preferences = normalizePreferences({ ...store.preferences, ...input });
+  await writeStore({ ...store, preferences });
+  return preferences;
+}
+
+export { defaultPreferences, defaultUpdateCommand };

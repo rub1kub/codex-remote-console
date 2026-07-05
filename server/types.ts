@@ -16,6 +16,7 @@ export type CodexProfile = {
   model?: string;
   approvalPolicy: ApprovalPolicy;
   sandboxMode: SandboxMode;
+  updateCommand?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -41,8 +42,21 @@ export type JsonRpcMessage = {
 export type ThreadListOptions = {
   searchTerm?: string;
   archived?: boolean;
+  limit?: number;
 };
 
 export type ConnectionSecrets = {
   password?: string;
+};
+
+export type AppPreferences = {
+  theme: "system" | "light" | "dark";
+  animations: boolean;
+  compactMode: boolean;
+  autoCheckUpdates: boolean;
+  autoRefreshHistory: boolean;
+  enterToSend: boolean;
+  showDiagnostics: boolean;
+  historyLimit: number;
+  defaultUpdateCommand: string;
 };
