@@ -1370,32 +1370,35 @@ export default function App() {
                 if (item.type === "steps") {
                   const isOpen = Boolean(openStepGroups[item.id]);
                   return (
-                    <section key={item.id} className={`steps-summary ${isOpen ? "open" : ""}`}>
-                      <button
-                        type="button"
-                        className="steps-toggle"
-                        onClick={() =>
-                          setOpenStepGroups((current) => ({
-                            ...current,
-                            [item.id]: !current[item.id]
-                          }))
-                        }
-                      >
-                        {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                        <span>Ход работы</span>
-                        <small>{item.messages.length}</small>
-                      </button>
-                      {isOpen && (
-                        <div className="steps-list">
-                          {item.messages.map((message) => (
-                            <article key={message.id} className={`step-item ${message.role}`}>
-                              <span>{message.title || messageRoleLabel[message.role]}</span>
-                              <p>{previewText(message.text) || "Без текста"}</p>
-                            </article>
-                          ))}
-                        </div>
-                      )}
-                    </section>
+                    <article key={item.id} className={`message assistant steps-message ${isOpen ? "open" : ""}`}>
+                      <div className="message-avatar">C</div>
+                      <section className={`steps-summary ${isOpen ? "open" : ""}`}>
+                        <button
+                          type="button"
+                          className="steps-toggle"
+                          onClick={() =>
+                            setOpenStepGroups((current) => ({
+                              ...current,
+                              [item.id]: !current[item.id]
+                            }))
+                          }
+                        >
+                          {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                          <span>Ход работы</span>
+                          <small>{item.messages.length}</small>
+                        </button>
+                        {isOpen && (
+                          <div className="steps-list">
+                            {item.messages.map((message) => (
+                              <article key={message.id} className={`step-item ${message.role}`}>
+                                <span>{message.title || messageRoleLabel[message.role]}</span>
+                                <p>{previewText(message.text) || "Без текста"}</p>
+                              </article>
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    </article>
                   );
                 }
 

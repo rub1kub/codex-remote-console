@@ -921,21 +921,32 @@ textarea:focus {
 .steps-summary {
   display: grid;
   flex: 0 0 auto;
-  width: min(900px, 100%);
+  width: 100%;
+  min-width: 0;
   min-height: 42px;
-  margin: 0 auto;
+  margin: 0;
   overflow: hidden;
   border: 1px solid #dfe6e1;
-  border-radius: 10px;
-  background: #fbfcfb;
+  border-radius: 14px;
+  border-top-left-radius: 4px;
+  background: #ffffff;
+  box-shadow: 0 1px 0 rgba(24, 30, 26, 0.04);
+}
+
+.message.steps-message {
+  margin-bottom: -8px;
+}
+
+.message.steps-message.open {
+  margin-bottom: -4px;
 }
 
 .steps-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 40px;
-  padding: 0 12px;
+  min-height: 44px;
+  padding: 0 14px;
   background: transparent;
   color: #35413a;
   cursor: pointer;
@@ -964,13 +975,14 @@ textarea:focus {
   display: grid;
   gap: 1px;
   border-top: 1px solid #e4e9e4;
+  background: #e4e9e4;
 }
 
 .step-item {
   display: grid;
   gap: 4px;
-  padding: 9px 12px;
-  background: #ffffff;
+  padding: 10px 14px;
+  background: #fbfcfb;
 }
 
 .step-item span {
@@ -2070,10 +2082,14 @@ textarea:focus {
 .theme-dark .settings-section,
 .theme-dark .message-body,
 .theme-dark .message.tool .message-body,
-.theme-dark .steps-list,
 .theme-dark .composer-popover {
   border-color: #2b352f;
   background: #151a17;
+}
+
+.theme-dark .steps-list {
+  border-color: #2b352f;
+  background: #2b352f;
 }
 
 .theme-dark .composer textarea:disabled {
