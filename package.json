@@ -1,7 +1,8 @@
 {
   "name": "codex-remote-console",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "description": "Minimal desktop UI for remote Codex CLI sessions over SSH.",
+  "desktopName": "Codex Remote",
   "author": "rub1kub",
   "private": true,
   "type": "module",
@@ -43,25 +44,52 @@
   "build": {
     "appId": "com.rub1kub.codexremote",
     "productName": "Codex Remote",
+    "npmRebuild": false,
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**/*",
       "build/server/**/*",
+      "build/icon.png",
       "electron/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/cpu-features/**/*",
+      "!node_modules/nan/**/*",
+      "!node_modules/ssh2/lib/protocol/crypto/build/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "target": ["dmg", "zip"]
+      "artifactName": "Codex-Remote-${version}-mac-${arch}.${ext}",
+      "icon": "build/icon.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "win": {
-      "target": ["nsis", "portable"]
+      "artifactName": "Codex-Remote-${version}-win-${arch}.${ext}",
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ]
     },
     "linux": {
       "category": "Development",
-      "target": ["AppImage", "deb"]
+      "artifactName": "Codex-Remote-${version}-linux-${arch}.${ext}",
+      "icon": "build/icon.png",
+      "maintainer": "rub1kub <rub1kub@users.noreply.github.com>",
+      "syncDesktopName": true,
+      "target": [
+        "AppImage",
+        "deb"
+      ]
     }
   }
 }

@@ -8,6 +8,12 @@ process.env.CODEX_REMOTE_NO_AUTOSTART = "1";
 let serverHandle;
 let mainWindow;
 
+function getWindowIconPath() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "icon.png")
+    : path.join(app.getAppPath(), "build", "icon.png");
+}
+
 async function startBackend() {
   const appRoot = app.getAppPath();
   const serverEntry = path.join(appRoot, "build", "server", "index.js");
@@ -84,6 +90,7 @@ async function createWindow() {
     minWidth: 860,
     minHeight: 620,
     title: "Codex Remote",
+    icon: getWindowIconPath(),
     backgroundColor: "#ffffff",
     autoHideMenuBar: process.platform !== "darwin",
     webPreferences: {
