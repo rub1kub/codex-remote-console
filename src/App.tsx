@@ -1254,12 +1254,6 @@ export default function App() {
                       <span className="project-copy">
                         <span className="project-name-line">
                           <span className="project-name">{projectTitle}</span>
-                          {projectConnection === "connecting" && (
-                            <Loader2 size={13} className="project-activity spin" aria-hidden="true" />
-                          )}
-                          {projectConnection === "connected" && (
-                            <span className="project-activity project-dot" aria-hidden="true" />
-                          )}
                         </span>
                         <small className="project-path">{profile.projectPath}</small>
                       </span>
@@ -1276,6 +1270,12 @@ export default function App() {
                         >
                           <Power size={14} />
                         </button>
+                      )}
+                      {projectConnection === "connecting" && (
+                        <Loader2 size={13} className="project-activity spin" aria-hidden="true" />
+                      )}
+                      {projectConnection === "connected" && (
+                        <span className="project-activity project-dot" aria-hidden="true" />
                       )}
                     </div>
                   );

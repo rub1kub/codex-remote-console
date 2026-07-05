@@ -497,7 +497,7 @@ textarea:focus {
 
 .project-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 30px;
+  grid-template-columns: 18px minmax(0, 1fr) 30px 18px;
   gap: 2px 8px;
   align-items: center;
   width: 100%;
@@ -552,8 +552,9 @@ textarea:focus {
 }
 
 .project-activity {
+  grid-column: 4;
+  justify-self: center;
   flex: 0 0 auto;
-  margin-left: auto;
   color: #168a75;
 }
 
@@ -584,6 +585,7 @@ textarea:focus {
 }
 
 .project-disconnect {
+  grid-column: 3;
   display: grid;
   width: 30px;
   height: 30px;
