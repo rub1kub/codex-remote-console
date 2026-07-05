@@ -39,13 +39,28 @@ function createMenu() {
         ]
       : []),
     {
-      label: "File",
+      label: "Файл",
       submenu: [
         process.platform === "darwin" ? { role: "close" } : { role: "quit" }
       ]
     },
     {
-      label: "View",
+      label: "Правка",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "pasteAndMatchStyle" },
+        { role: "delete" },
+        { type: "separator" },
+        { role: "selectAll" }
+      ]
+    },
+    {
+      label: "Вид",
       submenu: [
         { role: "reload" },
         { role: "toggleDevTools" },
@@ -109,4 +124,3 @@ app.on("before-quit", async () => {
     serverHandle = undefined;
   }
 });
-
