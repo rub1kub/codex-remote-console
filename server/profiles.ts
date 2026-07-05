@@ -29,6 +29,7 @@ const defaultPreferences: AppPreferences = {
   autoCheckUpdates: true,
   autoRefreshHistory: true,
   enterToSend: true,
+  notifyOnCompletion: true,
   showDiagnostics: false,
   historyLimit: 80,
   defaultUpdateCommand
@@ -129,6 +130,10 @@ function normalizePreferences(input?: Partial<AppPreferences>): AppPreferences {
       typeof input?.enterToSend === "boolean"
         ? input.enterToSend
         : defaultPreferences.enterToSend,
+    notifyOnCompletion:
+      typeof input?.notifyOnCompletion === "boolean"
+        ? input.notifyOnCompletion
+        : defaultPreferences.notifyOnCompletion,
     showDiagnostics:
       typeof input?.showDiagnostics === "boolean"
         ? input.showDiagnostics

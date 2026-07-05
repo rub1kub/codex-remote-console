@@ -1,6 +1,6 @@
 {
   "name": "codex-remote-console",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Minimal desktop UI for remote Codex CLI sessions over SSH.",
   "desktopName": "Codex Remote",
   "author": "rub1kub",

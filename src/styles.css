@@ -52,7 +52,8 @@ button:active {
   transform: translateY(1px);
 }
 
-.app-shell {
+.app-shell,
+.app-portal {
   --app-bg: #f7f8f6;
   --chat-bg: #ffffff;
   --composer-bg: #ffffff;
@@ -66,6 +67,13 @@ button:active {
   --sidebar-width: 328px;
   --titlebar-height: 36px;
   --messages-padding: 28px;
+  --z-messages: 1;
+  --z-composer: 20;
+  --z-popover: 70;
+  --z-modal: 120;
+}
+
+.app-shell {
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;
   grid-template-rows: var(--titlebar-height) minmax(0, 1fr);
@@ -73,6 +81,19 @@ button:active {
   min-height: 100vh;
   overflow: hidden;
   background: var(--app-bg);
+}
+
+.app-portal {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  overflow: visible;
+  color: #202422;
+  pointer-events: none;
+}
+
+.app-portal > * {
+  pointer-events: auto;
 }
 
 .window-titlebar {
@@ -865,7 +886,7 @@ textarea:focus {
 .messages {
   grid-row: 3;
   position: relative;
-  z-index: 1;
+  z-index: var(--z-messages);
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -916,6 +937,16 @@ textarea:focus {
 
 .thread-loading-state p {
   margin: 0;
+}
+
+.turn-group {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.turn-group + .turn-group {
+  margin-top: 6px;
 }
 
 .steps-summary {
@@ -1079,6 +1110,14 @@ textarea:focus {
   background: #f6f8f6;
 }
 
+.files-message {
+  margin-top: -4px;
+}
+
+.files-body {
+  background: #fbfcfb;
+}
+
 .message-head {
   display: flex;
   align-items: baseline;
@@ -1113,6 +1152,34 @@ textarea:focus {
 .message-content {
   display: grid;
   gap: 10px;
+}
+
+.file-summary-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.file-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  gap: 5px;
+  padding: 4px 7px;
+  border: 1px solid #dce6df;
+  border-radius: 7px;
+  background: #f2f7f4;
+  color: #13735f;
+  font-size: 12px;
+  font-weight: 720;
+  overflow-wrap: anywhere;
+}
+
+.file-summary-chip small {
+  color: #6b7770;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .message-text {
@@ -1189,7 +1256,7 @@ textarea:focus {
 .composer {
   grid-row: 4;
   position: relative;
-  z-index: 20;
+  z-index: var(--z-composer);
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -1298,7 +1365,7 @@ textarea:focus {
   position: absolute;
   right: 0;
   bottom: calc(100% + 31px);
-  z-index: 1000;
+  z-index: var(--z-popover);
   display: grid;
   gap: 6px;
   width: min(320px, calc(100vw - 32px));
@@ -1464,7 +1531,7 @@ textarea:focus {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 120;
+  z-index: var(--z-modal);
   display: grid;
   place-items: center;
   padding: 20px;
@@ -1486,6 +1553,133 @@ textarea:focus {
   animation: modalIn 180ms ease both;
 }
 
+.command-backdrop {
+  align-items: start;
+  padding-top: min(90px, 10vh);
+}
+
+.command-modal {
+  display: grid;
+  gap: 8px;
+  width: min(520px, 100%);
+  padding: 8px;
+  border: 1px solid #d8ded9;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 80px rgba(24, 30, 26, 0.22);
+  backdrop-filter: blur(20px);
+  animation: modalIn 160ms ease both;
+}
+
+.command-search {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 6px;
+  min-height: 42px;
+  padding: 4px 6px;
+  border: 1px solid #dfe5df;
+  border-radius: 10px;
+  background: #fbfcfb;
+  color: #657169;
+}
+
+.command-search input {
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.command-search button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 7px;
+  background: transparent;
+  color: #536059;
+  cursor: pointer;
+}
+
+.command-search button:hover {
+  background: #eef4f1;
+  color: #13735f;
+}
+
+.command-list {
+  display: grid;
+  gap: 3px;
+  max-height: min(420px, calc(100vh - 190px));
+  overflow: auto;
+}
+
+.command-item {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 7px;
+  border-radius: 9px;
+  background: transparent;
+  color: #26302a;
+  cursor: pointer;
+  text-align: left;
+}
+
+.command-item:hover:not(:disabled) {
+  background: #f1f5f2;
+}
+
+.command-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.command-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid #dce6df;
+  border-radius: 8px;
+  background: #f7fbf9;
+  color: #13735f;
+}
+
+.command-item span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.command-item strong,
+.command-item small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-item strong {
+  font-size: 13px;
+}
+
+.command-item small {
+  color: #707b74;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.command-empty {
+  padding: 14px;
+  color: #7a837d;
+  font-size: 12px;
+  font-weight: 650;
+  text-align: center;
+}
+
 .chat-modal {
   width: min(460px, 100%);
 }
@@ -1499,7 +1693,7 @@ textarea:focus {
 
 .thread-context-menu {
   position: fixed;
-  z-index: 60;
+  z-index: var(--z-popover);
   display: grid;
   gap: 3px;
   width: 210px;
@@ -1584,7 +1778,7 @@ textarea:focus {
 .settings-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 120;
+  z-index: var(--z-modal);
   display: flex;
   justify-content: flex-end;
   background: rgba(22, 28, 24, 0.18);
@@ -1734,6 +1928,56 @@ textarea:focus {
 
 .cli-status-card button {
   width: 100%;
+}
+
+.monitor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.monitor-grid > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  min-height: 50px;
+  padding: 9px 10px;
+  border: 1px solid #e1e6e1;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.monitor-grid span,
+.monitor-log {
+  color: #7a837d;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.monitor-grid strong {
+  overflow: hidden;
+  color: #202422;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monitor-log {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 1px solid #e1e6e1;
+  border-radius: 8px;
+  background: #fbfcfb;
+}
+
+.monitor-log span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .spin {
@@ -1995,7 +2239,8 @@ textarea:focus {
   color: #7a837d;
 }
 
-.app-shell.theme-dark {
+.app-shell.theme-dark,
+.app-portal.theme-dark {
   --app-bg: #111513;
   --chat-bg: #111513;
   --composer-bg: #111513;
@@ -2004,8 +2249,11 @@ textarea:focus {
   --primary-hover-bg: #f4f8f5;
   --sidebar-bg: #171d19;
   --sidebar-border: #27302b;
-  background: #111513;
   color: #e7ece8;
+}
+
+.app-shell.theme-dark {
+  background: #111513;
 }
 
 .theme-dark .sidebar {
@@ -2020,6 +2268,7 @@ textarea:focus {
 .theme-dark .chat,
 .theme-dark .settings-drawer,
 .theme-dark .profile-modal,
+.theme-dark .command-modal,
 .theme-dark .composer-popover,
 .theme-dark .thread-context-menu {
   background: #111513;
@@ -2036,7 +2285,9 @@ textarea:focus {
 .theme-dark .message-author,
 .theme-dark .message-text,
 .theme-dark .settings-section h3,
-.theme-dark .cli-status-card strong {
+.theme-dark .cli-status-card strong,
+.theme-dark .monitor-grid strong,
+.theme-dark .command-item strong {
   color: #edf3ef;
 }
 
@@ -2047,6 +2298,9 @@ textarea:focus {
 .theme-dark .chat-header p,
 .theme-dark .project-path,
 .theme-dark .thread-row small,
+.theme-dark .command-item small,
+.theme-dark .monitor-grid span,
+.theme-dark .monitor-log,
 .theme-dark .empty-note,
 .theme-dark .welcome p,
 .theme-dark .thread-loading-state p,
@@ -2074,8 +2328,13 @@ textarea:focus {
 .theme-dark .folder-browser-head,
 .theme-dark .segmented-control button,
 .theme-dark .cli-status-card > div,
+.theme-dark .monitor-grid > div,
+.theme-dark .monitor-log,
+.theme-dark .command-search,
+.theme-dark .command-icon,
 .theme-dark .steps-summary,
-.theme-dark .step-item {
+.theme-dark .step-item,
+.theme-dark .file-summary-chip {
   border-color: #2b352f;
   background: #171d19;
   color: #e7ece8;
@@ -2084,6 +2343,7 @@ textarea:focus {
 .theme-dark .settings-section,
 .theme-dark .message-body,
 .theme-dark .message.tool .message-body,
+.theme-dark .files-body,
 .theme-dark .composer-popover {
   border-color: #2b352f;
   background: #151a17;
@@ -2115,7 +2375,8 @@ textarea:focus {
 .theme-dark .confirm-copy,
 .theme-dark .popover-option,
 .theme-dark .popover-disclosure,
-.theme-dark .thread-context-menu button {
+.theme-dark .thread-context-menu button,
+.theme-dark .command-item {
   color: #cdd7d1;
 }
 
@@ -2125,6 +2386,12 @@ textarea:focus {
 .theme-dark .popover-disclosure:hover,
 .theme-dark .popover-disclosure.open,
 .theme-dark .thread-context-menu button:hover {
+  background: #202822;
+  color: #edf3ef;
+}
+
+.theme-dark .command-item:hover:not(:disabled),
+.theme-dark .command-search button:hover {
   background: #202822;
   color: #edf3ef;
 }
@@ -2304,6 +2571,19 @@ textarea:focus {
     left: 0;
     bottom: calc(100% + 58px);
     max-height: min(500px, calc(100vh - 180px));
+  }
+
+  .command-backdrop {
+    padding: 60px 12px 12px;
+  }
+
+  .command-modal {
+    width: 100%;
+  }
+
+  .monitor-grid,
+  .cli-status-card {
+    grid-template-columns: 1fr;
   }
 
   .two-fields {

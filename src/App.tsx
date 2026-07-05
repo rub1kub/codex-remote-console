@@ -6,7 +6,9 @@ import {
   ChevronRight,
   Check,
   Circle,
+  Command,
   Download,
+  FileText,
   Folder,
   FolderOpen,
   Gauge,
@@ -31,7 +33,8 @@ import {
   X,
   Zap
 } from "lucide-react";
-import { FormEvent, KeyboardEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, MouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import type {
   AppPreferences,
@@ -49,6 +52,27 @@ type ConnectionState = "idle" | "connecting" | "connected";
 type ProfileDraft = Omit<CodexProfile, "id" | "createdAt" | "updatedAt"> & {
   password?: string;
 };
+type StoredUiState = {
+  selectedProfileId?: string;
+  activeThreadId?: string;
+  search?: string;
+};
+type FileSummary = {
+  key: string;
+  label: string;
+  path: string;
+  operation?: string;
+};
+type CommandAction = {
+  id: string;
+  label: string;
+  detail: string;
+  icon: ReactNode;
+  disabled?: boolean;
+  run: () => void;
+};
+
+const uiStateStorageKey = "codex-remote-ui-state";
 
 const defaultUpdateCommand =
   "CODEX_NON_INTERACTIVE=1 codex update || npm install -g @openai/codex@latest";
@@ -63,6 +87,7 @@ const defaultPreferences: AppPreferences = {
   autoCheckUpdates: true,
   autoRefreshHistory: true,
   enterToSend: true,
+  notifyOnCompletion: true,
   showDiagnostics: false,
   historyLimit: 80,
   defaultUpdateCommand
@@ -106,6 +131,25 @@ const speedOptions: Array<{
   { value: "standard", label: "Стандартно", description: "Обычная скорость" },
   { value: "fast", label: "Быстро", description: "Быстрее, расход выше" }
 ];
+
+function readStoredUiState(): StoredUiState {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(uiStateStorageKey);
+    return raw ? JSON.parse(raw) as StoredUiState : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredUiState(patch: StoredUiState) {
+  if (typeof window === "undefined") return;
+  const current = readStoredUiState();
+  window.localStorage.setItem(
+    uiStateStorageKey,
+    JSON.stringify({ ...current, ...patch })
+  );
+}
 
 const formatDate = (seconds: number) =>
   new Intl.DateTimeFormat("ru", {
@@ -294,6 +338,12 @@ function displayTitleOf(thread: CodexThread | null | undefined, metadata?: Threa
 type MessageDisplayItem =
   | { type: "message"; message: ChatMessage }
   | { type: "steps"; id: string; messages: ChatMessage[] };
+type TurnDisplay = {
+  id: string;
+  user?: ChatMessage;
+  items: MessageDisplayItem[];
+  files: FileSummary[];
+};
 
 function buildStepGroupId(messages: ChatMessage[]) {
   return `steps-${messages[0]?.id ?? "empty"}-${messages[messages.length - 1]?.id ?? "empty"}`;
@@ -351,12 +401,83 @@ function buildMessageDisplay(messages: ChatMessage[]): MessageDisplayItem[] {
   return items;
 }
 
+function normalizeFilePath(value: string) {
+  return value.trim().replace(/^file:\/\//, "");
+}
+
+function isLikelyFilePath(value: string) {
+  if (!value || /^https?:\/\//i.test(value)) return false;
+  return /[/\\]/.test(value) || /\.[a-z0-9]{1,8}$/i.test(value);
+}
+
+function extractFileReferences(messages: ChatMessage[]): FileSummary[] {
+  const files = new Map<string, FileSummary>();
+
+  const addFile = (path: string, label?: string, operation?: string) => {
+    const normalizedPath = normalizeFilePath(path);
+    if (!isLikelyFilePath(normalizedPath)) return;
+    const key = normalizedPath;
+    if (!files.has(key)) {
+      files.set(key, {
+        key,
+        label: label?.trim() || basenameOf(normalizedPath),
+        path: normalizedPath,
+        operation
+      });
+    }
+  };
+
+  messages
+    .filter((message) => message.role !== "user")
+    .forEach((message) => {
+      if (message.title === "Изменения файлов") {
+        message.text.split("\n").forEach((line) => {
+          const [operation, ...pathParts] = line.trim().split(/\s+/);
+          addFile(pathParts.join(" "), undefined, operation);
+        });
+      }
+
+      for (const match of message.text.matchAll(/\[([^\]]+)\]\(([^)]+)\)/g)) {
+        addFile(match[2], match[1]);
+      }
+    });
+
+  return Array.from(files.values()).slice(0, 8);
+}
+
+function buildTurnDisplay(messages: ChatMessage[]): TurnDisplay[] {
+  const turns: Array<{ id: string; user?: ChatMessage; messages: ChatMessage[] }> = [];
+  let current: { id: string; user?: ChatMessage; messages: ChatMessage[] } | null = null;
+
+  messages.forEach((message) => {
+    if (message.role === "user") {
+      current = { id: `turn-${message.id}`, user: message, messages: [] };
+      turns.push(current);
+      return;
+    }
+
+    if (!current) {
+      current = { id: `turn-orphan-${message.id}`, messages: [] };
+      turns.push(current);
+    }
+    current.messages.push(message);
+  });
+
+  return turns.map((turn) => ({
+    id: turn.id,
+    user: turn.user,
+    items: buildMessageDisplay(turn.messages),
+    files: extractFileReferences(turn.messages)
+  }));
+}
+
 function previewText(text: string) {
   const normalized = text.replace(/\s+/g, " ").trim();
   return normalized.length > 160 ? `${normalized.slice(0, 160)}...` : normalized;
 }
 
 export default function App() {
+  const initialUiStateRef = useRef(readStoredUiState());
   const [profiles, setProfiles] = useState<CodexProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [connection, setConnection] = useState<ConnectionState>("idle");
@@ -365,7 +486,7 @@ export default function App() {
   const [activeThread, setActiveThread] = useState<CodexThread | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialUiStateRef.current.search || "");
   const [isProfileOpen, setProfileOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<CodexProfile | null>(null);
   const [draft, setDraft] = useState<ProfileDraft>(emptyDraft);
@@ -394,12 +515,15 @@ export default function App() {
   const [renameValue, setRenameValue] = useState("");
   const [deletingThread, setDeletingThread] = useState<CodexThread | null>(null);
   const [pendingDeleteThreadId, setPendingDeleteThreadId] = useState("");
+  const [isCommandOpen, setCommandOpen] = useState(false);
+  const [commandQuery, setCommandQuery] = useState("");
 
   const wsRef = useRef<WebSocket | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const preferencesRef = useRef(preferences);
   const sessionPasswordsRef = useRef(sessionPasswords);
   const searchRef = useRef(search);
+  const didRestoreThreadRef = useRef(false);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId),
@@ -447,7 +571,7 @@ export default function App() {
     [sortedThreads, threadMetadata]
   );
 
-  const messageDisplay = useMemo(() => buildMessageDisplay(messages), [messages]);
+  const turnDisplay = useMemo(() => buildTurnDisplay(messages), [messages]);
 
   const activeThreadTitle = displayTitleOf(
     activeThread,
@@ -482,7 +606,20 @@ export default function App() {
 
   useEffect(() => {
     searchRef.current = search;
+    writeStoredUiState({ search });
   }, [search]);
+
+  useEffect(() => {
+    if (selectedProfileId) {
+      writeStoredUiState({ selectedProfileId });
+    }
+  }, [selectedProfileId]);
+
+  useEffect(() => {
+    if (activeThread?.id) {
+      writeStoredUiState({ activeThreadId: activeThread.id });
+    }
+  }, [activeThread?.id]);
 
   useEffect(() => {
     const closeTransientMenus = () => {
@@ -491,8 +628,16 @@ export default function App() {
       setOpenComposerSubmenu(null);
     };
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        closeTransientMenus();
+        setCommandQuery("");
+        setCommandOpen(true);
+        return;
+      }
       if (event.key === "Escape") {
         closeTransientMenus();
+        setCommandOpen(false);
       }
     };
 
@@ -526,11 +671,40 @@ export default function App() {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [messages.length, messages.map((message) => message.text.length).join(":")]);
 
+  useEffect(() => {
+    if (
+      connection !== "connected" ||
+      didRestoreThreadRef.current ||
+      activeThread ||
+      loadingThreadId
+    ) {
+      return;
+    }
+
+    const storedThreadId = readStoredUiState().activeThreadId;
+    const thread = storedThreadId
+      ? threads.find((item) => item.id === storedThreadId)
+      : undefined;
+    if (!thread) return;
+
+    didRestoreThreadRef.current = true;
+    selectThread(thread);
+  }, [activeThread, connection, loadingThreadId, threads]);
+
   async function loadProfiles() {
     const response = await fetch("/api/profiles");
     const data = (await response.json()) as { profiles: CodexProfile[] };
     setProfiles(data.profiles);
-    setSelectedProfileId((current) => current || data.profiles[0]?.id || "");
+    setSelectedProfileId((current) => {
+      if (current && data.profiles.some((profile) => profile.id === current)) {
+        return current;
+      }
+      const storedProfileId = initialUiStateRef.current.selectedProfileId;
+      if (storedProfileId && data.profiles.some((profile) => profile.id === storedProfileId)) {
+        return storedProfileId;
+      }
+      return data.profiles[0]?.id || "";
+    });
   }
 
   async function loadPreferences() {
@@ -724,6 +898,23 @@ export default function App() {
     }
   }
 
+  function notifyCompletion() {
+    if (!preferencesRef.current.notifyOnCompletion || typeof window === "undefined") return;
+    if (!("Notification" in window)) return;
+
+    const title = "Codex закончил задачу";
+    const body = activeThreadTitle || selectedProfile?.projectPath || "Ответ готов";
+    const show = () => new Notification(title, { body });
+
+    if (Notification.permission === "granted") {
+      show();
+    } else if (Notification.permission === "default") {
+      void Notification.requestPermission().then((permission) => {
+        if (permission === "granted") show();
+      });
+    }
+  }
+
   function handleNotification(method: string, params: any) {
     if (method === "thread/started" && params.thread) {
       setActiveThread(params.thread);
@@ -776,6 +967,7 @@ export default function App() {
 
     if (method === "turn/completed") {
       setBusy(false);
+      notifyCompletion();
       if (preferencesRef.current.autoRefreshHistory) {
         send({ type: "listThreads", searchTerm: searchRef.current });
       }
@@ -795,6 +987,7 @@ export default function App() {
     setBusy(false);
     setLoadingThreadId("");
     setOpenStepGroups({});
+    didRestoreThreadRef.current = false;
     setConnection("connecting");
     send({
       type: "connect",
@@ -1161,6 +1354,79 @@ export default function App() {
   ]
     .filter(Boolean)
     .join(" ");
+  const portalClassName = rootClassName.replace("app-shell", "app-portal");
+  const lastLogLine = logs[0] || "нет событий";
+  const appVersion = "0.1.0-alpha.2";
+  const commandActions = useMemo<CommandAction[]>(
+    () => [
+      {
+        id: "new-thread",
+        label: "Новый диалог",
+        detail: selectedProfile ? projectTitleOf(selectedProfile) : "сначала подключите проект",
+        icon: <MessageSquare size={15} />,
+        disabled: connection !== "connected",
+        run: newThread
+      },
+      {
+        id: "settings",
+        label: "Настройки",
+        detail: "Codex, внешний вид, поведение",
+        icon: <SlidersHorizontal size={15} />,
+        run: () => setSettingsOpen(true)
+      },
+      {
+        id: "project",
+        label: "Добавить проект",
+        detail: selectedProfile ? `на основе ${serverLabelOf(selectedProfile)}` : "сервер или локальная папка",
+        icon: <Folder size={15} />,
+        run: () => openProfile(undefined, selectedProfile)
+      },
+      {
+        id: "refresh",
+        label: "Обновить чаты",
+        detail: selectedProfile?.projectPath || "нет проекта",
+        icon: <RefreshCw size={15} />,
+        disabled: connection !== "connected",
+        run: () => refreshThreads()
+      },
+      {
+        id: "reconnect",
+        label: "Переподключиться",
+        detail: selectedProfile ? serverLabelOf(selectedProfile) : "нет проекта",
+        icon: <RefreshCw size={15} />,
+        disabled: !selectedProfileId || connection === "connecting",
+        run: () => connectProject()
+      },
+      {
+        id: "check-cli",
+        label: "Проверить Codex CLI",
+        detail: selectedProfile ? serverLabelOf(selectedProfile) : "нет проекта",
+        icon: <Download size={15} />,
+        disabled: !selectedProfileId || isCliWorking,
+        run: checkCodexCli
+      },
+      {
+        id: "disconnect",
+        label: "Отключиться",
+        detail: selectedProfile ? projectTitleOf(selectedProfile) : "нет активного подключения",
+        icon: <Power size={15} />,
+        disabled: connection !== "connected",
+        run: disconnect
+      }
+    ],
+    [connection, isCliWorking, selectedProfile, selectedProfileId]
+  );
+  const filteredCommandActions = useMemo(() => {
+    const query = commandQuery.trim().toLowerCase();
+    if (!query) return commandActions;
+    return commandActions.filter((action) =>
+      `${action.label} ${action.detail}`.toLowerCase().includes(query)
+    );
+  }, [commandActions, commandQuery]);
+  const renderLayer = (content: ReactNode) =>
+    typeof document === "undefined"
+      ? content
+      : createPortal(<div className={portalClassName}>{content}</div>, document.body);
 
   const renderThreadRow = (thread: CodexThread) => {
     const pinned = Boolean(threadMetadata[thread.id]?.pinned);
@@ -1194,6 +1460,13 @@ export default function App() {
       </div>
     );
   };
+
+  function runCommandAction(action: CommandAction) {
+    if (action.disabled) return;
+    setCommandOpen(false);
+    setCommandQuery("");
+    action.run();
+  }
 
   return (
     <main className={rootClassName}>
@@ -1332,6 +1605,9 @@ export default function App() {
             <p>{selectedProfile?.projectPath || "Выберите сервер и папку проекта"}</p>
           </div>
           <div className="header-actions">
+            <button className="header-settings" onClick={() => setCommandOpen(true)} title="Команды" aria-label="Команды">
+              <Command size={16} />
+            </button>
             <button className="header-settings" onClick={() => setSettingsOpen(true)} title="Настройки" aria-label="Настройки">
               <SlidersHorizontal size={16} />
             </button>
@@ -1366,58 +1642,96 @@ export default function App() {
             </div>
           ) : (
             <>
-              {messageDisplay.map((item) => {
-                if (item.type === "steps") {
-                  const isOpen = Boolean(openStepGroups[item.id]);
-                  return (
-                    <article key={item.id} className={`message assistant steps-message ${isOpen ? "open" : ""}`}>
-                      <div className="message-avatar">C</div>
-                      <section className={`steps-summary ${isOpen ? "open" : ""}`}>
-                        <button
-                          type="button"
-                          className="steps-toggle"
-                          onClick={() =>
-                            setOpenStepGroups((current) => ({
-                              ...current,
-                              [item.id]: !current[item.id]
-                            }))
-                          }
-                        >
-                          {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                          <span>Ход работы</span>
-                          <small>{item.messages.length}</small>
-                        </button>
-                        {isOpen && (
-                          <div className="steps-list">
-                            {item.messages.map((message) => (
-                              <article key={message.id} className={`step-item ${message.role}`}>
-                                <span>{message.title || messageRoleLabel[message.role]}</span>
-                                <p>{previewText(message.text) || "Без текста"}</p>
-                              </article>
-                            ))}
-                          </div>
-                        )}
-                      </section>
-                    </article>
-                  );
-                }
-
-                const { message } = item;
-                return (
-                  <article key={message.id} className={`message ${message.role}`}>
-                    <div className="message-avatar">
-                      {message.role === "tool" ? <Terminal size={15} /> : messageAvatarLabel[message.role]}
-                    </div>
-                    <div className="message-body">
-                      <div className="message-head">
-                        <span className="message-author">{messageRoleLabel[message.role]}</span>
-                        {message.title && <span className="message-title">{message.title}</span>}
+              {turnDisplay.map((turn) => (
+                <section key={turn.id} className="turn-group">
+                  {turn.user && (
+                    <article className="message user">
+                      <div className="message-avatar">{messageAvatarLabel.user}</div>
+                      <div className="message-body">
+                        <div className="message-head">
+                          <span className="message-author">{messageRoleLabel.user}</span>
+                        </div>
+                        <div className="message-content">{renderTextBlocks(turn.user)}</div>
                       </div>
-                      <div className="message-content">{renderTextBlocks(message)}</div>
-                    </div>
-                  </article>
-                );
-              })}
+                    </article>
+                  )}
+
+                  {turn.items.map((item) => {
+                    if (item.type === "steps") {
+                      const isOpen = Boolean(openStepGroups[item.id]);
+                      return (
+                        <article key={item.id} className={`message assistant steps-message ${isOpen ? "open" : ""}`}>
+                          <div className="message-avatar">C</div>
+                          <section className={`steps-summary ${isOpen ? "open" : ""}`}>
+                            <button
+                              type="button"
+                              className="steps-toggle"
+                              onClick={() =>
+                                setOpenStepGroups((current) => ({
+                                  ...current,
+                                  [item.id]: !current[item.id]
+                                }))
+                              }
+                            >
+                              {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                              <span>Ход работы</span>
+                              <small>{item.messages.length}</small>
+                            </button>
+                            {isOpen && (
+                              <div className="steps-list">
+                                {item.messages.map((message) => (
+                                  <article key={message.id} className={`step-item ${message.role}`}>
+                                    <span>{message.title || messageRoleLabel[message.role]}</span>
+                                    <p>{previewText(message.text) || "Без текста"}</p>
+                                  </article>
+                                ))}
+                              </div>
+                            )}
+                          </section>
+                        </article>
+                      );
+                    }
+
+                    const { message } = item;
+                    return (
+                      <article key={message.id} className={`message ${message.role}`}>
+                        <div className="message-avatar">
+                          {message.role === "tool" ? <Terminal size={15} /> : messageAvatarLabel[message.role]}
+                        </div>
+                        <div className="message-body">
+                          <div className="message-head">
+                            <span className="message-author">{messageRoleLabel[message.role]}</span>
+                            {message.title && <span className="message-title">{message.title}</span>}
+                          </div>
+                          <div className="message-content">{renderTextBlocks(message)}</div>
+                        </div>
+                      </article>
+                    );
+                  })}
+
+                  {turn.files.length > 0 && (
+                    <article className="message assistant files-message">
+                      <div className="message-avatar">
+                        <FileText size={15} />
+                      </div>
+                      <div className="message-body files-body">
+                        <div className="message-head">
+                          <span className="message-author">Файлы</span>
+                          <span className="message-title">{turn.files.length}</span>
+                        </div>
+                        <div className="file-summary-list">
+                          {turn.files.map((file) => (
+                            <span key={file.key} className="file-summary-chip" title={file.path}>
+                              {file.operation && <small>{file.operation}</small>}
+                              {file.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </article>
+                  )}
+                </section>
+              ))}
             </>
           )}
           {!loadingThreadId && messages.length > 0 && <div ref={endRef} />}
@@ -1586,7 +1900,7 @@ export default function App() {
         )}
       </section>
 
-      {isProfileOpen && (
+      {isProfileOpen && renderLayer(
         <div className="modal-backdrop" role="presentation">
           <form className="profile-modal" onSubmit={saveDraft}>
             <div className="modal-head">
@@ -1831,7 +2145,7 @@ export default function App() {
         </div>
       )}
 
-      {renamingThread && (
+      {renamingThread && renderLayer(
         <div className="modal-backdrop" role="presentation">
           <form className="profile-modal chat-modal" onSubmit={saveThreadTitle}>
             <div className="modal-head">
@@ -1864,7 +2178,7 @@ export default function App() {
         </div>
       )}
 
-      {deletingThread && (
+      {deletingThread && renderLayer(
         <div className="modal-backdrop" role="presentation">
           <div className="profile-modal chat-modal confirm-modal">
             <div className="modal-head">
@@ -1893,7 +2207,53 @@ export default function App() {
         </div>
       )}
 
-      {threadMenu && (
+      {isCommandOpen && renderLayer(
+        <div className="modal-backdrop command-backdrop" role="presentation">
+          <div className="command-modal" role="dialog" aria-label="Команды">
+            <div className="command-search">
+              <Command size={16} />
+              <input
+                value={commandQuery}
+                onChange={(event) => setCommandQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    const action = filteredCommandActions.find((item) => !item.disabled);
+                    if (action) runCommandAction(action);
+                  }
+                }}
+                placeholder="Что сделать?"
+                autoFocus
+              />
+              <button type="button" onClick={() => setCommandOpen(false)} aria-label="Закрыть">
+                <X size={15} />
+              </button>
+            </div>
+            <div className="command-list">
+              {filteredCommandActions.map((action) => (
+                <button
+                  key={action.id}
+                  type="button"
+                  className="command-item"
+                  onClick={() => runCommandAction(action)}
+                  disabled={action.disabled}
+                >
+                  <span className="command-icon">{action.icon}</span>
+                  <span>
+                    <strong>{action.label}</strong>
+                    <small>{action.detail}</small>
+                  </span>
+                </button>
+              ))}
+              {filteredCommandActions.length === 0 && (
+                <div className="command-empty">Нет действий</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {threadMenu && renderLayer(
         <div
           className="thread-context-menu"
           style={{ left: threadMenu.x, top: threadMenu.y }}
@@ -1938,7 +2298,7 @@ export default function App() {
         </div>
       )}
 
-      {isSettingsOpen && (
+      {isSettingsOpen && renderLayer(
         <div className="settings-backdrop" role="presentation">
           <aside className="settings-drawer" aria-label="Настройки">
             <div className="modal-head">
@@ -1991,6 +2351,40 @@ export default function App() {
                   onChange={(event) => void updatePreferences({ autoCheckUpdates: event.target.checked })}
                 />
               </label>
+            </section>
+
+            <section className="settings-section">
+              <h3>Сервер</h3>
+              <div className="monitor-grid">
+                <div>
+                  <span>Проект</span>
+                  <strong>{selectedProfile ? projectTitleOf(selectedProfile) : "не выбран"}</strong>
+                </div>
+                <div>
+                  <span>Подключение</span>
+                  <strong>{statusText[connection]}</strong>
+                </div>
+                <div>
+                  <span>App server</span>
+                  <strong>{codexStatus || "нет статуса"}</strong>
+                </div>
+                <div>
+                  <span>Чаты</span>
+                  <strong>{visibleThreads.length}</strong>
+                </div>
+                <div>
+                  <span>Codex CLI</span>
+                  <strong>{cliStatus?.installed || "не проверено"}</strong>
+                </div>
+                <div>
+                  <span>Приложение</span>
+                  <strong>{appVersion}</strong>
+                </div>
+              </div>
+              <div className="monitor-log">
+                <Terminal size={14} />
+                <span>{lastLogLine}</span>
+              </div>
             </section>
 
             <section className="settings-section">
@@ -2066,6 +2460,14 @@ export default function App() {
                   type="checkbox"
                   checked={preferences.autoRefreshHistory}
                   onChange={(event) => void updatePreferences({ autoRefreshHistory: event.target.checked })}
+                />
+              </label>
+              <label className="toggle-row">
+                <span>Уведомлять о завершении</span>
+                <input
+                  type="checkbox"
+                  checked={preferences.notifyOnCompletion}
+                  onChange={(event) => void updatePreferences({ notifyOnCompletion: event.target.checked })}
                 />
               </label>
               <label className="toggle-row">

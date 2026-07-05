@@ -85,6 +85,7 @@ export type AppPreferences = {
   autoCheckUpdates: boolean;
   autoRefreshHistory: boolean;
   enterToSend: boolean;
+  notifyOnCompletion: boolean;
   showDiagnostics: boolean;
   historyLimit: number;
   defaultUpdateCommand: string;
