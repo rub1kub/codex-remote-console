@@ -21,6 +21,10 @@ export type CodexProfile = {
   updatedAt: string;
 };
 
+export type ThreadMetadata = {
+  pinned?: boolean;
+};
+
 export type ProfileInput = Partial<
   Omit<CodexProfile, "id" | "createdAt" | "updatedAt">
 >;

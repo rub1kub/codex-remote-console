@@ -32,6 +32,10 @@ export type AppPreferences = {
   defaultUpdateCommand: string;
 };
 
+export type ThreadMetadata = {
+  pinned?: boolean;
+};
+
 export type CodexCliStatus = {
   installed: string;
   latest: string;

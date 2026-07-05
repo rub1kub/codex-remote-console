@@ -3,11 +3,17 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { AppPreferences, CodexProfile, ProfileInput } from "./types";
+import type {
+  AppPreferences,
+  CodexProfile,
+  ProfileInput,
+  ThreadMetadata
+} from "./types";
 
 type Store = {
   profiles: CodexProfile[];
   preferences: AppPreferences;
+  threadMetadata: Record<string, ThreadMetadata>;
 };
 
 const defaultUpdateCommand =
@@ -41,11 +47,15 @@ async function readStore(): Promise<Store> {
     const parsed = JSON.parse(raw) as Partial<Store>;
     return {
       profiles: Array.isArray(parsed.profiles) ? parsed.profiles : [],
-      preferences: normalizePreferences(parsed.preferences)
+      preferences: normalizePreferences(parsed.preferences),
+      threadMetadata:
+        parsed.threadMetadata && typeof parsed.threadMetadata === "object"
+          ? parsed.threadMetadata
+          : {}
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { profiles: [], preferences: defaultPreferences };
+      return { profiles: [], preferences: defaultPreferences, threadMetadata: {} };
     }
     throw error;
   }
@@ -200,6 +210,33 @@ export async function savePreferences(input: Partial<AppPreferences>) {
   const preferences = normalizePreferences({ ...store.preferences, ...input });
   await writeStore({ ...store, preferences });
   return preferences;
+}
+
+export async function getThreadMetadata() {
+  return (await readStore()).threadMetadata;
+}
+
+export async function saveThreadMetadata(
+  threadId: string,
+  input: Partial<ThreadMetadata> = {}
+) {
+  const store = await readStore();
+  const current = store.threadMetadata[threadId] ?? {};
+  const next = {
+    ...current,
+    pinned:
+      typeof input.pinned === "boolean" ? input.pinned : current.pinned
+  };
+
+  const threadMetadata = { ...store.threadMetadata };
+  if (next.pinned) {
+    threadMetadata[threadId] = next;
+  } else {
+    delete threadMetadata[threadId];
+  }
+
+  await writeStore({ ...store, threadMetadata });
+  return threadMetadata[threadId] ?? {};
 }
 
 export { defaultPreferences, defaultUpdateCommand };

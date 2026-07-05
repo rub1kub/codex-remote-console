@@ -8,7 +8,9 @@ import {
   deleteProfile,
   getProfile,
   getPreferences,
+  getThreadMetadata,
   listProfiles,
+  saveThreadMetadata,
   savePreferences,
   saveProfile
 } from "./profiles";
@@ -69,6 +71,24 @@ export async function startServer(
   app.patch("/api/preferences", async (request, response, next) => {
     try {
       response.json({ preferences: await savePreferences(request.body) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/thread-metadata", async (_request, response, next) => {
+    try {
+      response.json({ threadMetadata: await getThreadMetadata() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/thread-metadata/:threadId", async (request, response, next) => {
+    try {
+      response.json({
+        metadata: await saveThreadMetadata(request.params.threadId, request.body ?? {})
+      });
     } catch (error) {
       next(error);
     }

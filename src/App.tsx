@@ -3,6 +3,7 @@ import {
   Check,
   Circle,
   Download,
+  Folder,
   History,
   KeyRound,
   Loader2,
@@ -10,10 +11,10 @@ import {
   Monitor,
   Moon,
   Plus,
+  Pin,
   RefreshCw,
   Search,
   Server,
-  Settings,
   SlidersHorizontal,
   Square,
   Sun,
@@ -30,6 +31,7 @@ import type {
   CodexProfile,
   CodexThread,
   ServerMessage,
+  ThreadMetadata,
   ThreadItem
 } from "./types";
 
@@ -75,6 +77,27 @@ const formatDate = (seconds: number) =>
 
 const titleOf = (thread?: CodexThread | null) =>
   thread?.name || thread?.preview || "Новая сессия";
+
+const serverKeyOf = (profile: CodexProfile) =>
+  profile.mode === "local" ? "local" : profile.sshTarget;
+
+const serverLabelOf = (profile?: CodexProfile | null) => {
+  if (!profile) return "Нет проекта";
+  return profile.mode === "local" ? "Local" : profile.sshTarget;
+};
+
+const basenameOf = (value: string) => {
+  const clean = value.replace(/\/+$/, "");
+  return clean.split("/").filter(Boolean).pop() || clean || value;
+};
+
+const projectTitleOf = (profile?: CodexProfile | null) => {
+  if (!profile) return "Добавьте проект";
+  const serverLabel = serverLabelOf(profile);
+  return profile.name && profile.name !== serverLabel
+    ? profile.name
+    : basenameOf(profile.projectPath);
+};
 
 function itemToMessage(item: ThreadItem): ChatMessage | null {
   if (item.type === "userMessage") {
@@ -153,6 +176,7 @@ export default function App() {
   const [editingProfile, setEditingProfile] = useState<CodexProfile | null>(null);
   const [draft, setDraft] = useState<ProfileDraft>(emptyDraft);
   const [sessionPasswords, setSessionPasswords] = useState<Record<string, string>>({});
+  const [threadMetadata, setThreadMetadata] = useState<Record<string, ThreadMetadata>>({});
   const [preferences, setPreferences] = useState<AppPreferences>(defaultPreferences);
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const [cliStatus, setCliStatus] = useState<CodexCliStatus | null>(null);
@@ -172,9 +196,46 @@ export default function App() {
     [profiles, selectedProfileId]
   );
 
+  const projectGroups = useMemo(() => {
+    const groups = new Map<string, { label: string; profiles: CodexProfile[] }>();
+    profiles.forEach((profile) => {
+      const key = serverKeyOf(profile);
+      const current = groups.get(key) ?? { label: serverLabelOf(profile), profiles: [] };
+      current.profiles.push(profile);
+      groups.set(key, current);
+    });
+    return Array.from(groups.entries()).map(([key, group]) => ({
+      key,
+      label: group.label,
+      profiles: group.profiles
+    }));
+  }, [profiles]);
+
+  const sortedThreads = useMemo(
+    () =>
+      [...threads].sort((left, right) => {
+        const leftPinned = threadMetadata[left.id]?.pinned ? 1 : 0;
+        const rightPinned = threadMetadata[right.id]?.pinned ? 1 : 0;
+        if (leftPinned !== rightPinned) return rightPinned - leftPinned;
+        return right.updatedAt - left.updatedAt;
+      }),
+    [threads, threadMetadata]
+  );
+
+  const pinnedThreads = useMemo(
+    () => sortedThreads.filter((thread) => threadMetadata[thread.id]?.pinned),
+    [sortedThreads, threadMetadata]
+  );
+
+  const recentThreads = useMemo(
+    () => sortedThreads.filter((thread) => !threadMetadata[thread.id]?.pinned),
+    [sortedThreads, threadMetadata]
+  );
+
   useEffect(() => {
     void loadProfiles();
     void loadPreferences();
+    void loadThreadMetadata();
   }, []);
 
   useEffect(() => {
@@ -222,6 +283,12 @@ export default function App() {
     const response = await fetch("/api/preferences");
     const data = (await response.json()) as { preferences: AppPreferences };
     setPreferences({ ...defaultPreferences, ...data.preferences });
+  }
+
+  async function loadThreadMetadata() {
+    const response = await fetch("/api/thread-metadata");
+    const data = (await response.json()) as { threadMetadata: Record<string, ThreadMetadata> };
+    setThreadMetadata(data.threadMetadata || {});
   }
 
   async function updatePreferences(patch: Partial<AppPreferences>) {
@@ -383,6 +450,20 @@ export default function App() {
     });
   }
 
+  function selectProject(profileId: string) {
+    if (profileId === selectedProfileId) return;
+    if (connection !== "idle") {
+      send({ type: "disconnect" });
+    }
+    setSelectedProfileId(profileId);
+    setConnection("idle");
+    setBusy(false);
+    setThreads([]);
+    setActiveThread(null);
+    setMessages([]);
+    setError("");
+  }
+
   function checkCodexCli() {
     if (!selectedProfileId) {
       setProfileOpen(true);
@@ -426,6 +507,44 @@ export default function App() {
     send({ type: "newThread" });
   }
 
+  async function togglePin(thread: CodexThread) {
+    const pinned = !threadMetadata[thread.id]?.pinned;
+    const previous = threadMetadata;
+    setThreadMetadata((current) => {
+      const next = { ...current };
+      if (pinned) {
+        next[thread.id] = { ...current[thread.id], pinned };
+      } else {
+        delete next[thread.id];
+      }
+      return next;
+    });
+
+    try {
+      const response = await fetch(`/api/thread-metadata/${encodeURIComponent(thread.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned })
+      });
+      const data = (await response.json()) as { metadata?: ThreadMetadata; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "Не удалось закрепить чат.");
+      }
+      setThreadMetadata((current) => {
+        const next = { ...current };
+        if (data.metadata?.pinned) {
+          next[thread.id] = data.metadata;
+        } else {
+          delete next[thread.id];
+        }
+        return next;
+      });
+    } catch (pinError) {
+      setThreadMetadata(previous);
+      setError(pinError instanceof Error ? pinError.message : "Не удалось закрепить чат.");
+    }
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault();
     const text = input.trim();
@@ -444,7 +563,7 @@ export default function App() {
     });
   }
 
-  function openProfile(profile?: CodexProfile) {
+  function openProfile(profile?: CodexProfile, template?: CodexProfile) {
     setEditingProfile(profile ?? null);
     setDraft(
       profile
@@ -462,7 +581,22 @@ export default function App() {
             sandboxMode: profile.sandboxMode,
             password: sessionPasswords[profile.id] ?? ""
           }
-        : emptyDraft
+        : template
+          ? {
+              ...emptyDraft,
+              mode: template.mode,
+              sshTarget: template.sshTarget,
+              port: template.port,
+              identityFile: template.identityFile,
+              projectPath: "",
+              codexBin: template.codexBin,
+              model: template.model,
+              updateCommand: template.updateCommand,
+              approvalPolicy: template.approvalPolicy,
+              sandboxMode: template.sandboxMode,
+              password: sessionPasswords[template.id] ?? ""
+            }
+          : emptyDraft
     );
     setProfileOpen(true);
   }
@@ -518,58 +652,127 @@ export default function App() {
     .filter(Boolean)
     .join(" ");
 
+  const currentProjectTitle = projectTitleOf(selectedProfile);
+  const currentServerLabel = serverLabelOf(selectedProfile);
+
+  const renderThreadRow = (thread: CodexThread) => {
+    const pinned = Boolean(threadMetadata[thread.id]?.pinned);
+    return (
+      <div
+        key={thread.id}
+        className={`thread-row ${activeThread?.id === thread.id ? "active" : ""} ${pinned ? "pinned" : ""}`}
+      >
+        <button className="thread-main" onClick={() => selectThread(thread)}>
+          <span>{titleOf(thread)}</span>
+          <small>{formatDate(thread.updatedAt)} · {thread.source}</small>
+        </button>
+        <button
+          className="thread-pin"
+          onClick={() => void togglePin(thread)}
+          title={pinned ? "Открепить чат" : "Закрепить чат"}
+          aria-label={pinned ? "Открепить чат" : "Закрепить чат"}
+          aria-pressed={pinned}
+        >
+          <Pin size={14} fill={pinned ? "currentColor" : "none"} />
+        </button>
+      </div>
+    );
+  };
+
   return (
     <main className={rootClassName}>
       <aside className="sidebar">
-        <section className="profile-box">
-          <label>Сервер</label>
-          <div className="profile-select-row">
-            <select
-              value={selectedProfileId}
-              onChange={(event) => setSelectedProfileId(event.target.value)}
+        <section className="workspace-panel">
+          <div className="workspace-head">
+            <div>
+              <span>Рабочее место</span>
+              <strong>{currentServerLabel}</strong>
+            </div>
+            <button
+              className="icon-button"
+              onClick={() => openProfile(undefined, selectedProfile)}
+              title="Добавить проект"
             >
-              <option value="">Добавить сервер</option>
-              {profiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.name}
-                </option>
-              ))}
-            </select>
-            <button className="icon-button" onClick={() => openProfile(selectedProfile)} title="Настройки сервера">
-              <Settings size={16} />
+              <Plus size={16} />
             </button>
           </div>
 
-          {selectedProfile && (
-            <div className="profile-meta">
-              <Server size={14} />
-              <span>{selectedProfile.mode === "local" ? "local" : selectedProfile.sshTarget}</span>
-              <span>{selectedProfile.projectPath}</span>
+          <div className="connection-strip">
+            <div className="connection-copy">
+              <span className={`connection-dot ${connection}`} />
+              <div>
+                <strong>{currentProjectTitle}</strong>
+                <small>{selectedProfile?.projectPath || "Создайте проект на сервере"}</small>
+              </div>
             </div>
-          )}
-
-          <button
-            className="primary-button"
-            onClick={connection === "connected" ? disconnect : connect}
-          >
-            {connection === "connecting" ? (
-              <Loader2 size={16} className="spin" />
-            ) : connection === "connected" ? (
-              <Square size={14} />
-            ) : (
-              <Check size={16} />
-            )}
-            {connection === "connected" ? "Отключиться" : "Подключиться"}
-          </button>
+            <button
+              className="connect-action"
+              onClick={connection === "connected" ? disconnect : connect}
+              disabled={connection === "connecting"}
+            >
+              {connection === "connecting" ? (
+                <Loader2 size={15} className="spin" />
+              ) : connection === "connected" ? (
+                <Square size={13} />
+              ) : (
+                <Check size={15} />
+              )}
+              {connection === "connected" ? "Stop" : "Connect"}
+            </button>
+          </div>
         </section>
 
-        <div className="history-head">
+        <section className="project-panel">
+          <div className="section-head">
+            <div>
+              <Folder size={15} />
+              <span>Проекты</span>
+            </div>
+            <button
+              className="small-command"
+              onClick={() => openProfile(undefined, selectedProfile)}
+              title="Новый проект или папка"
+            >
+              <Plus size={14} />
+              Проект
+            </button>
+          </div>
+
+          <div className="project-list">
+            {projectGroups.map((group) => (
+              <section key={group.key} className="project-group">
+                <div className="server-row">
+                  <Server size={13} />
+                  <span>{group.label}</span>
+                </div>
+                {group.profiles.map((profile) => (
+                  <button
+                    key={profile.id}
+                    className={`project-row ${profile.id === selectedProfileId ? "active" : ""}`}
+                    onClick={() => selectProject(profile.id)}
+                  >
+                    <Folder size={15} />
+                    <span>{projectTitleOf(profile)}</span>
+                    <small>{profile.projectPath}</small>
+                  </button>
+                ))}
+              </section>
+            ))}
+            {profiles.length === 0 && (
+              <div className="empty-note">Добавьте проект: сервер + папка, например /var/www/site.com.</div>
+            )}
+          </div>
+        </section>
+
+        <div className="session-head">
           <div>
             <History size={15} />
-            <span>История</span>
+            <span>Чаты</span>
+            <small>{threads.length}</small>
           </div>
-          <button className="icon-button" onClick={newThread} title="Новая сессия" disabled={connection !== "connected"}>
-            <Plus size={16} />
+          <button className="new-dialog-button" onClick={newThread} disabled={connection !== "connected"}>
+            <Plus size={14} />
+            Новый диалог
           </button>
         </div>
 
@@ -579,29 +782,23 @@ export default function App() {
             value={search}
             onChange={(event) => refreshThreads(event.target.value)}
             placeholder="Поиск сессий"
+            autoComplete="off"
           />
         </div>
 
         <div className="thread-list">
-          {threads.map((thread) => (
-            <button
-              key={thread.id}
-              className={`thread-row ${activeThread?.id === thread.id ? "active" : ""}`}
-              onClick={() => selectThread(thread)}
-            >
-              <span>{titleOf(thread)}</span>
-              <small>{formatDate(thread.updatedAt)} · {thread.source}</small>
-            </button>
-          ))}
+          {pinnedThreads.length > 0 && (
+            <div className="thread-group-label">Закрепленные</div>
+          )}
+          {pinnedThreads.map(renderThreadRow)}
+          {pinnedThreads.length > 0 && recentThreads.length > 0 && (
+            <div className="thread-group-label">Недавние</div>
+          )}
+          {recentThreads.map(renderThreadRow)}
           {connection === "connected" && threads.length === 0 && (
-            <div className="empty-note">Сессий в этой директории пока не найдено.</div>
+            <div className="empty-note">В этой папке пока нет чатов.</div>
           )}
         </div>
-
-        <button className="text-button" onClick={() => openProfile()}>
-          <Plus size={15} />
-          Новый сервер
-        </button>
       </aside>
 
       <section className="chat">
@@ -692,18 +889,19 @@ export default function App() {
         <div className="modal-backdrop" role="presentation">
           <form className="profile-modal" onSubmit={saveDraft}>
             <div className="modal-head">
-              <h2>{editingProfile ? "Сервер" : "Новый сервер"}</h2>
+              <h2>{editingProfile ? "Проект" : "Новый проект"}</h2>
               <button type="button" className="icon-button" onClick={() => setProfileOpen(false)}>
                 <X size={16} />
               </button>
             </div>
 
             <label>
-              Название
+              Название проекта
               <input
                 value={draft.name}
                 onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                placeholder="prod-box"
+                placeholder="zavozik.xyz"
+                autoComplete="organization"
               />
             </label>
 
@@ -721,7 +919,7 @@ export default function App() {
             {draft.mode === "ssh" && (
               <>
                 <label>
-                  SSH target
+                  Сервер SSH
                   <input
                     value={draft.sshTarget}
                     onChange={(event) => setDraft({ ...draft, sshTarget: event.target.value })}
@@ -736,6 +934,7 @@ export default function App() {
                       value={draft.port ?? ""}
                       onChange={(event) => setDraft({ ...draft, port: event.target.value ? Number(event.target.value) : undefined })}
                       placeholder="22"
+                      autoComplete="off"
                     />
                   </label>
                   <label>
@@ -744,6 +943,7 @@ export default function App() {
                       value={draft.identityFile ?? ""}
                       onChange={(event) => setDraft({ ...draft, identityFile: event.target.value })}
                       placeholder="~/.ssh/id_ed25519"
+                      autoComplete="off"
                     />
                   </label>
                 </div>
@@ -765,11 +965,12 @@ export default function App() {
             )}
 
             <label>
-              Project path
+              Папка проекта
               <input
                 value={draft.projectPath}
                 onChange={(event) => setDraft({ ...draft, projectPath: event.target.value })}
-                placeholder="~/app"
+                placeholder="/var/www/zavozik.xyz"
+                autoComplete="off"
                 required
               />
             </label>
@@ -778,20 +979,22 @@ export default function App() {
               <label>
                 Codex binary
                 <input
-                value={draft.codexBin}
-                onChange={(event) => setDraft({ ...draft, codexBin: event.target.value })}
-                placeholder="codex"
-              />
-            </label>
+                  value={draft.codexBin}
+                  onChange={(event) => setDraft({ ...draft, codexBin: event.target.value })}
+                  placeholder="codex"
+                  autoComplete="off"
+                />
+              </label>
               <label>
                 Model
                 <input
                   value={draft.model ?? ""}
                   onChange={(event) => setDraft({ ...draft, model: event.target.value })}
-                placeholder="default"
-              />
-            </label>
-          </div>
+                  placeholder="default"
+                  autoComplete="off"
+                />
+              </label>
+            </div>
 
             <label>
               Codex update command
@@ -799,6 +1002,7 @@ export default function App() {
                 value={draft.updateCommand ?? ""}
                 onChange={(event) => setDraft({ ...draft, updateCommand: event.target.value })}
                 placeholder={preferences.defaultUpdateCommand}
+                autoComplete="off"
               />
             </label>
 
@@ -890,6 +1094,7 @@ export default function App() {
                 <input
                   value={preferences.defaultUpdateCommand}
                   onChange={(event) => void updatePreferences({ defaultUpdateCommand: event.target.value })}
+                  autoComplete="off"
                 />
               </label>
               <label className="toggle-row">
@@ -993,6 +1198,7 @@ export default function App() {
                   max={300}
                   value={preferences.historyLimit}
                   onChange={(event) => void updatePreferences({ historyLimit: Number(event.target.value) })}
+                  autoComplete="off"
                 />
               </label>
             </section>
