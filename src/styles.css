@@ -16,6 +16,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow: hidden;
 }
 
 button,
@@ -62,18 +63,47 @@ button:active {
   --sidebar-border: #dfe3df;
   --sidebar-padding: 14px;
   --sidebar-width: 328px;
+  --titlebar-height: 36px;
   --messages-padding: 28px;
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;
+  grid-template-rows: var(--titlebar-height) minmax(0, 1fr);
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
   background: var(--app-bg);
+}
+
+.window-titlebar {
+  -webkit-app-region: drag;
+  display: flex;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  align-items: center;
+  height: var(--titlebar-height);
+  padding: 0 16px 0 88px;
+  border-bottom: 1px solid var(--sidebar-border);
+  background: var(--sidebar-bg);
+  color: #4f5953;
+  user-select: none;
+}
+
+.window-titlebar span {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 760;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar {
   display: flex;
+  grid-row: 2;
   flex-direction: column;
   gap: 14px;
-  min-height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   padding: var(--sidebar-padding);
   border-right: 1px solid var(--sidebar-border);
   background: var(--sidebar-bg);
@@ -466,11 +496,12 @@ textarea:focus {
 
 .project-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr);
   gap: 2px 8px;
   align-items: center;
   width: 100%;
-  padding: 8px;
+  min-height: 54px;
+  padding: 8px 10px;
   border-radius: 8px;
   background: transparent;
   color: #202422;
@@ -484,9 +515,22 @@ textarea:focus {
 }
 
 .project-icon {
-  grid-row: span 2;
+  grid-row: 1;
   margin-top: 1px;
   color: #69736c;
+}
+
+.project-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.project-name-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
 }
 
 .project-name,
@@ -506,23 +550,18 @@ textarea:focus {
   font-size: 11px;
 }
 
-.project-status {
-  display: inline-flex;
-  grid-column: 3;
-  grid-row: 1 / span 2;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-width: 86px;
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid #d7ddd7;
-  border-radius: 7px;
-  background: #ffffff;
-  color: #29322d;
-  font-size: 11px;
-  font-weight: 800;
-  white-space: nowrap;
+.project-activity {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #168a75;
+}
+
+.project-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 4px rgba(22, 138, 117, 0.12);
 }
 
 .project-row:hover,
@@ -535,16 +574,12 @@ textarea:focus {
   color: #168a75;
 }
 
-.project-row.connected .project-status {
-  border-color: rgba(22, 138, 117, 0.28);
-  background: #eef9f5;
-  color: #147460;
+.project-row.connected {
+  background: #ffffff;
 }
 
-.project-row.connecting .project-status {
-  border-color: rgba(195, 140, 31, 0.28);
-  background: #fff8e8;
-  color: #8a5c0f;
+.project-row.connecting {
+  background: #fffaf0;
 }
 
 .session-head {
@@ -647,9 +682,10 @@ textarea:focus {
 
 .chat {
   display: grid;
+  grid-row: 2;
   grid-template-rows: auto auto 1fr auto auto;
   min-width: 0;
-  height: 100vh;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   background: var(--chat-bg);
@@ -1405,7 +1441,6 @@ textarea:focus {
 .concept-calm-terminal .sidebar input,
 .concept-calm-terminal .small-command,
 .concept-calm-terminal .new-dialog-button,
-.concept-calm-terminal .project-status,
 .concept-calm-terminal .sidebar .password-field,
 .concept-calm-terminal .sidebar .search-box,
 .concept-calm-terminal .sidebar .icon-button {
@@ -1496,6 +1531,10 @@ textarea:focus {
   background: #171d19;
 }
 
+.theme-dark .window-titlebar {
+  color: #dce5df;
+}
+
 .theme-dark .chat,
 .theme-dark .settings-drawer,
 .theme-dark .profile-modal {
@@ -1536,7 +1575,6 @@ textarea:focus {
 .theme-dark .secondary-button,
 .theme-dark .small-command,
 .theme-dark .new-dialog-button,
-.theme-dark .project-status,
 .theme-dark .search-box,
 .theme-dark .password-field,
 .theme-dark .quick-paths button,
@@ -1634,14 +1672,35 @@ textarea:focus {
 }
 
 @media (max-width: 840px) {
+  body {
+    overflow: auto;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: var(--titlebar-height) auto minmax(0, 1fr);
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .window-titlebar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
   }
 
   .sidebar {
+    grid-row: 2;
     min-height: auto;
+    overflow: visible;
     border-right: 0;
     border-bottom: 1px solid #dfe3df;
+  }
+
+  .chat {
+    grid-row: 3;
+    min-height: 560px;
   }
 
   .thread-list {

@@ -1,7 +1,6 @@
 import {
   ArrowLeft,
   ArrowUp,
-  Check,
   Circle,
   Download,
   Folder,
@@ -835,6 +834,10 @@ export default function App() {
 
   return (
     <main className={rootClassName}>
+      <div className="window-titlebar" aria-hidden="true">
+        <span>Codex Remote</span>
+      </div>
+
       <aside className="sidebar">
         <section className="project-panel">
           <div className="section-head">
@@ -862,12 +865,13 @@ export default function App() {
                 {group.profiles.map((profile) => {
                   const isActiveProject = profile.id === selectedProfileId;
                   const projectConnection = isActiveProject ? connection : "idle";
-                  const projectAction =
+                  const projectStateLabel =
                     projectConnection === "connected"
-                      ? "Отключить"
+                      ? "Подключено"
                       : projectConnection === "connecting"
-                        ? "Ждем"
-                        : "Подключить";
+                        ? "Подключение"
+                        : "Не подключено";
+                  const projectTitle = projectTitleOf(profile);
 
                   return (
                     <button
@@ -875,20 +879,21 @@ export default function App() {
                       className={`project-row ${isActiveProject ? "active" : ""} ${projectConnection}`}
                       onClick={() => runProject(profile.id)}
                       disabled={connection === "connecting"}
-                      title={`${projectAction}: ${projectTitleOf(profile)}`}
+                      title={`${projectTitle} · ${projectStateLabel}`}
+                      aria-label={`${projectTitle}. ${projectStateLabel}`}
                     >
                       <Folder className="project-icon" size={15} />
-                      <span className="project-name">{projectTitleOf(profile)}</span>
-                      <small className="project-path">{profile.projectPath}</small>
-                      <span className="project-status">
-                        {projectConnection === "connecting" ? (
-                          <Loader2 size={13} className="spin" />
-                        ) : projectConnection === "connected" ? (
-                          <Square size={12} />
-                        ) : (
-                          <Check size={13} />
-                        )}
-                        {projectAction}
+                      <span className="project-copy">
+                        <span className="project-name-line">
+                          <span className="project-name">{projectTitle}</span>
+                          {projectConnection === "connecting" && (
+                            <Loader2 size={13} className="project-activity spin" aria-hidden="true" />
+                          )}
+                          {projectConnection === "connected" && (
+                            <span className="project-activity project-dot" aria-hidden="true" />
+                          )}
+                        </span>
+                        <small className="project-path">{profile.projectPath}</small>
                       </span>
                     </button>
                   );

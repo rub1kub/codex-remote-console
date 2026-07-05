@@ -91,7 +91,20 @@ async function createWindow() {
     minHeight: 620,
     title: "Codex Remote",
     icon: getWindowIconPath(),
-    backgroundColor: "#ffffff",
+    ...(process.platform === "darwin"
+      ? {
+          titleBarStyle: "hiddenInset",
+          trafficLightPosition: { x: 14, y: 11 }
+        }
+      : {
+          titleBarStyle: "hidden",
+          titleBarOverlay: {
+            color: "#f0f2ef",
+            symbolColor: "#202422",
+            height: 36
+          }
+        }),
+    backgroundColor: "#f0f2ef",
     autoHideMenuBar: process.platform !== "darwin",
     webPreferences: {
       contextIsolation: true,
