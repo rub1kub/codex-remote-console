@@ -1,6 +1,8 @@
 import {
   ArrowLeft,
   ArrowUp,
+  ChevronDown,
+  ChevronRight,
   Circle,
   Download,
   Folder,
@@ -11,8 +13,10 @@ import {
   MessageSquare,
   Monitor,
   Moon,
+  Pencil,
   Plus,
   Pin,
+  Power,
   RefreshCw,
   Search,
   Server,
@@ -23,7 +27,7 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   AppPreferences,
@@ -253,6 +257,47 @@ function upsertMessage(
   return copy;
 }
 
+function hasThreadMetadata(metadata?: ThreadMetadata): metadata is ThreadMetadata {
+  return Boolean(metadata?.pinned || metadata?.title || metadata?.hidden);
+}
+
+function displayTitleOf(thread: CodexThread | null | undefined, metadata?: ThreadMetadata) {
+  return metadata?.title || titleOf(thread);
+}
+
+function splitMessages(messages: ChatMessage[]) {
+  let finalAssistantIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === "assistant" && messages[index].text.trim()) {
+      finalAssistantIndex = index;
+      break;
+    }
+  }
+
+  if (finalAssistantIndex <= 0) {
+    return { collapsed: [], visible: messages };
+  }
+
+  const collapsed = messages.filter(
+    (message, index) => index < finalAssistantIndex && message.role !== "user"
+  );
+  if (collapsed.length === 0) {
+    return { collapsed: [], visible: messages };
+  }
+
+  return {
+    collapsed,
+    visible: messages.filter(
+      (message, index) => message.role === "user" || index >= finalAssistantIndex
+    )
+  };
+}
+
+function previewText(text: string) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return normalized.length > 160 ? `${normalized.slice(0, 160)}...` : normalized;
+}
+
 export default function App() {
   const [profiles, setProfiles] = useState<CodexProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState("");
@@ -278,6 +323,12 @@ export default function App() {
   const [error, setError] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const [isBusy, setBusy] = useState(false);
+  const [loadingThreadId, setLoadingThreadId] = useState("");
+  const [isStepsOpen, setStepsOpen] = useState(false);
+  const [renamingThread, setRenamingThread] = useState<CodexThread | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deletingThread, setDeletingThread] = useState<CodexThread | null>(null);
+  const [pendingDeleteThreadId, setPendingDeleteThreadId] = useState("");
 
   const wsRef = useRef<WebSocket | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -305,15 +356,20 @@ export default function App() {
     }));
   }, [profiles]);
 
+  const visibleThreads = useMemo(
+    () => threads.filter((thread) => !threadMetadata[thread.id]?.hidden),
+    [threads, threadMetadata]
+  );
+
   const sortedThreads = useMemo(
     () =>
-      [...threads].sort((left, right) => {
+      [...visibleThreads].sort((left, right) => {
         const leftPinned = threadMetadata[left.id]?.pinned ? 1 : 0;
         const rightPinned = threadMetadata[right.id]?.pinned ? 1 : 0;
         if (leftPinned !== rightPinned) return rightPinned - leftPinned;
         return right.updatedAt - left.updatedAt;
       }),
-    [threads, threadMetadata]
+    [visibleThreads, threadMetadata]
   );
 
   const pinnedThreads = useMemo(
@@ -324,6 +380,13 @@ export default function App() {
   const recentThreads = useMemo(
     () => sortedThreads.filter((thread) => !threadMetadata[thread.id]?.pinned),
     [sortedThreads, threadMetadata]
+  );
+
+  const messageGroups = useMemo(() => splitMessages(messages), [messages]);
+
+  const activeThreadTitle = displayTitleOf(
+    activeThread,
+    activeThread ? threadMetadata[activeThread.id] : undefined
   );
 
   useEffect(() => {
@@ -473,6 +536,9 @@ export default function App() {
     if (message.type === "connection") {
       setConnection(message.status);
       setCodexStatus(message.status);
+      if (message.status !== "connected") {
+        setLoadingThreadId("");
+      }
       if (
         message.status === "connected" &&
         message.profile?.id &&
@@ -508,6 +574,34 @@ export default function App() {
     if (message.type === "thread") {
       setActiveThread(message.result.thread);
       setMessages(threadToMessages(message.result.thread));
+      setLoadingThreadId("");
+      setStepsOpen(false);
+      setBusy(false);
+      setThreads((current) => {
+        const exists = current.some((thread) => thread.id === message.result.thread.id);
+        if (exists) {
+          return current.map((thread) =>
+            thread.id === message.result.thread.id
+              ? { ...thread, ...message.result.thread, turns: thread.turns }
+              : thread
+          );
+        }
+        return [message.result.thread, ...current];
+      });
+      return;
+    }
+
+    if (message.type === "threadDeleted") {
+      setPendingDeleteThreadId((current) =>
+        current === message.threadId ? "" : current
+      );
+      if (message.archiveError) {
+        setLogs((current) =>
+          [`Чат скрыт локально. Архив Codex: ${message.archiveError}`, ...current]
+            .filter(Boolean)
+            .slice(0, 20)
+        );
+      }
       return;
     }
 
@@ -524,6 +618,7 @@ export default function App() {
     if (message.type === "error") {
       setError(message.message);
       setBusy(false);
+      setLoadingThreadId("");
       return;
     }
 
@@ -601,6 +696,8 @@ export default function App() {
     setActiveThread(null);
     setThreads([]);
     setBusy(false);
+    setLoadingThreadId("");
+    setStepsOpen(false);
     setConnection("connecting");
     send({
       type: "connect",
@@ -613,11 +710,16 @@ export default function App() {
     if (connection === "connecting") return;
 
     if (profileId === selectedProfileId && connection === "connected") {
-      disconnect();
       return;
     }
 
     connectProject(profileId);
+  }
+
+  function handleProjectKey(event: KeyboardEvent<HTMLDivElement>, profileId: string) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    runProject(profileId);
   }
 
   function checkCodexCli() {
@@ -650,16 +752,22 @@ export default function App() {
     send({ type: "disconnect" });
     setConnection("idle");
     setBusy(false);
+    setLoadingThreadId("");
   }
 
   function selectThread(thread: CodexThread) {
     setActiveThread(thread);
+    setMessages([]);
+    setLoadingThreadId(thread.id);
+    setStepsOpen(false);
     send({ type: "readThread", threadId: thread.id });
   }
 
   function newThread() {
     setActiveThread(null);
     setMessages([]);
+    setLoadingThreadId("");
+    setStepsOpen(false);
     send({ type: "newThread" });
   }
 
@@ -668,8 +776,11 @@ export default function App() {
     const previous = threadMetadata;
     setThreadMetadata((current) => {
       const next = { ...current };
+      const metadata = { ...current[thread.id], pinned: pinned || undefined };
       if (pinned) {
-        next[thread.id] = { ...current[thread.id], pinned };
+        next[thread.id] = metadata;
+      } else if (hasThreadMetadata(metadata)) {
+        next[thread.id] = metadata;
       } else {
         delete next[thread.id];
       }
@@ -688,7 +799,7 @@ export default function App() {
       }
       setThreadMetadata((current) => {
         const next = { ...current };
-        if (data.metadata?.pinned) {
+        if (hasThreadMetadata(data.metadata)) {
           next[thread.id] = data.metadata;
         } else {
           delete next[thread.id];
@@ -698,6 +809,93 @@ export default function App() {
     } catch (pinError) {
       setThreadMetadata(previous);
       setError(pinError instanceof Error ? pinError.message : "Не удалось закрепить чат.");
+    }
+  }
+
+  function openRenameThread(thread: CodexThread) {
+    setRenamingThread(thread);
+    setRenameValue(displayTitleOf(thread, threadMetadata[thread.id]));
+  }
+
+  async function saveThreadTitle(event: FormEvent) {
+    event.preventDefault();
+    if (!renamingThread) return;
+
+    const nextTitle = renameValue.trim();
+    if (!nextTitle) {
+      setError("Название чата не может быть пустым.");
+      return;
+    }
+
+    const threadId = renamingThread.id;
+    const previous = threadMetadata;
+    setRenamingThread(null);
+    setThreadMetadata((current) => ({
+      ...current,
+      [threadId]: { ...current[threadId], title: nextTitle }
+    }));
+
+    try {
+      const response = await fetch(`/api/thread-metadata/${encodeURIComponent(threadId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: nextTitle })
+      });
+      const data = (await response.json()) as { metadata?: ThreadMetadata; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "Не удалось переименовать чат.");
+      }
+      setThreadMetadata((current) => {
+        const next = { ...current };
+        if (hasThreadMetadata(data.metadata)) {
+          next[threadId] = data.metadata;
+        } else {
+          delete next[threadId];
+        }
+        return next;
+      });
+    } catch (renameError) {
+      setThreadMetadata(previous);
+      setError(renameError instanceof Error ? renameError.message : "Не удалось переименовать чат.");
+    }
+  }
+
+  async function confirmDeleteThread() {
+    if (!deletingThread) return;
+
+    const thread = deletingThread;
+    const previousThreads = threads;
+    const previousMetadata = threadMetadata;
+    setDeletingThread(null);
+    setPendingDeleteThreadId(thread.id);
+    setThreads((current) => current.filter((item) => item.id !== thread.id));
+    setThreadMetadata((current) => ({
+      ...current,
+      [thread.id]: { ...current[thread.id], pinned: undefined, hidden: true }
+    }));
+    if (activeThread?.id === thread.id) {
+      setActiveThread(null);
+      setMessages([]);
+      setLoadingThreadId("");
+      setStepsOpen(false);
+    }
+
+    try {
+      const response = await fetch(`/api/thread-metadata/${encodeURIComponent(thread.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hidden: true, pinned: false })
+      });
+      const data = (await response.json()) as { metadata?: ThreadMetadata; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "Не удалось удалить чат.");
+      }
+      send({ type: "deleteThread", threadId: thread.id });
+    } catch (deleteError) {
+      setPendingDeleteThreadId("");
+      setThreads(previousThreads);
+      setThreadMetadata(previousMetadata);
+      setError(deleteError instanceof Error ? deleteError.message : "Не удалось удалить чат.");
     }
   }
 
@@ -810,24 +1008,49 @@ export default function App() {
 
   const renderThreadRow = (thread: CodexThread) => {
     const pinned = Boolean(threadMetadata[thread.id]?.pinned);
+    const isThreadLoading = loadingThreadId === thread.id;
+    const isDeleting = pendingDeleteThreadId === thread.id;
+    const threadTitle = displayTitleOf(thread, threadMetadata[thread.id]);
     return (
       <div
         key={thread.id}
         className={`thread-row ${activeThread?.id === thread.id ? "active" : ""} ${pinned ? "pinned" : ""}`}
       >
-        <button className="thread-main" onClick={() => selectThread(thread)}>
-          <span>{titleOf(thread)}</span>
+        <button className="thread-main" onClick={() => selectThread(thread)} disabled={isDeleting}>
+          <span>{threadTitle}</span>
           <small>{formatDate(thread.updatedAt)} · {thread.source}</small>
         </button>
-        <button
-          className="thread-pin"
-          onClick={() => void togglePin(thread)}
-          title={pinned ? "Открепить чат" : "Закрепить чат"}
-          aria-label={pinned ? "Открепить чат" : "Закрепить чат"}
-          aria-pressed={pinned}
-        >
-          <Pin size={14} fill={pinned ? "currentColor" : "none"} />
-        </button>
+        <div className="thread-actions">
+          {isThreadLoading && <Loader2 size={14} className="thread-loading spin" aria-hidden="true" />}
+          <button
+            className="thread-action"
+            onClick={() => openRenameThread(thread)}
+            title="Переименовать чат"
+            aria-label="Переименовать чат"
+            disabled={isDeleting}
+          >
+            <Pencil size={13} />
+          </button>
+          <button
+            className="thread-action danger"
+            onClick={() => setDeletingThread(thread)}
+            title="Удалить чат"
+            aria-label="Удалить чат"
+            disabled={isDeleting}
+          >
+            <Trash2 size={13} />
+          </button>
+          <button
+            className="thread-action"
+            onClick={() => void togglePin(thread)}
+            title={pinned ? "Открепить чат" : "Закрепить чат"}
+            aria-label={pinned ? "Открепить чат" : "Закрепить чат"}
+            aria-pressed={pinned}
+            disabled={isDeleting}
+          >
+            <Pin size={14} fill={pinned ? "currentColor" : "none"} />
+          </button>
+        </div>
       </div>
     );
   };
@@ -873,12 +1096,17 @@ export default function App() {
                         : "Не подключено";
                   const projectTitle = projectTitleOf(profile);
 
+                  const canDisconnectProject = isActiveProject && projectConnection === "connected";
+
                   return (
-                    <button
+                    <div
                       key={profile.id}
                       className={`project-row ${isActiveProject ? "active" : ""} ${projectConnection}`}
                       onClick={() => runProject(profile.id)}
-                      disabled={connection === "connecting"}
+                      onKeyDown={(event) => handleProjectKey(event, profile.id)}
+                      role="button"
+                      tabIndex={connection === "connecting" ? -1 : 0}
+                      aria-disabled={connection === "connecting"}
                       title={`${projectTitle} · ${projectStateLabel}`}
                       aria-label={`${projectTitle}. ${projectStateLabel}`}
                     >
@@ -895,7 +1123,22 @@ export default function App() {
                         </span>
                         <small className="project-path">{profile.projectPath}</small>
                       </span>
-                    </button>
+                      {canDisconnectProject && (
+                        <button
+                          type="button"
+                          className="project-disconnect"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            disconnect();
+                          }}
+                          title="Отключить проект"
+                          aria-label="Отключить проект"
+                        >
+                          <Power size={13} />
+                          Отключить
+                        </button>
+                      )}
+                    </div>
                   );
                 })}
               </section>
@@ -910,7 +1153,7 @@ export default function App() {
           <div>
             <History size={15} />
             <span>Чаты</span>
-            <small>{threads.length}</small>
+            <small>{visibleThreads.length}</small>
           </div>
           <button className="new-dialog-button" onClick={newThread} disabled={connection !== "connected"}>
             <Plus size={14} />
@@ -937,7 +1180,7 @@ export default function App() {
             <div className="thread-group-label">Недавние</div>
           )}
           {recentThreads.map(renderThreadRow)}
-          {connection === "connected" && threads.length === 0 && (
+          {connection === "connected" && visibleThreads.length === 0 && (
             <div className="empty-note">В этой папке пока нет чатов.</div>
           )}
         </div>
@@ -946,15 +1189,15 @@ export default function App() {
       <section className="chat">
         <header className="chat-header">
           <div>
-            <h1>{titleOf(activeThread)}</h1>
+            <h1>{activeThreadTitle}</h1>
             <p>{selectedProfile?.projectPath || "Выберите сервер и папку проекта"}</p>
           </div>
           <div className="header-actions">
-            <button className="icon-button" onClick={() => setSettingsOpen(true)} title="Настройки">
+            <button className="header-settings" onClick={() => setSettingsOpen(true)} title="Настройки" aria-label="Настройки">
               <SlidersHorizontal size={16} />
             </button>
-            <div className={`status-pill ${connection}`}>
-              <Circle size={8} fill="currentColor" />
+            <div className={`connection-chip ${connection}`} title={statusText[connection]}>
+              <Circle size={7} fill="currentColor" />
               {statusText[connection]}
             </div>
           </div>
@@ -969,30 +1212,58 @@ export default function App() {
           </div>
         )}
 
-        <div className={messages.length === 0 ? "messages empty" : "messages"}>
-          {messages.length === 0 ? (
+        <div className={loadingThreadId || messages.length === 0 ? "messages empty" : "messages"}>
+          {loadingThreadId ? (
+            <div className="thread-loading-state">
+              <Loader2 size={26} className="spin" />
+              <h2>Загружаю чат</h2>
+              <p>Поднимаю историю с сервера.</p>
+            </div>
+          ) : messages.length === 0 ? (
             <div className="welcome">
               <MessageSquare size={28} />
               <h2>Откройте чат или напишите Codex</h2>
               <p>История появится после подключения.</p>
             </div>
           ) : (
-            messages.map((message) => (
-              <article key={message.id} className={`message ${message.role}`}>
-                <div className="message-avatar">
-                  {message.role === "tool" ? <Terminal size={15} /> : messageAvatarLabel[message.role]}
-                </div>
-                <div className="message-body">
-                  <div className="message-head">
-                    <span className="message-author">{messageRoleLabel[message.role]}</span>
-                    {message.title && <span className="message-title">{message.title}</span>}
+            <>
+              {messageGroups.collapsed.length > 0 && (
+                <section className={`steps-summary ${isStepsOpen ? "open" : ""}`}>
+                  <button type="button" className="steps-toggle" onClick={() => setStepsOpen((current) => !current)}>
+                    {isStepsOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                    <span>Ход работы</span>
+                    <small>{messageGroups.collapsed.length}</small>
+                  </button>
+                  {isStepsOpen && (
+                    <div className="steps-list">
+                      {messageGroups.collapsed.map((message) => (
+                        <article key={message.id} className={`step-item ${message.role}`}>
+                          <span>{message.title || messageRoleLabel[message.role]}</span>
+                          <p>{previewText(message.text) || "Без текста"}</p>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {messageGroups.visible.map((message) => (
+                <article key={message.id} className={`message ${message.role}`}>
+                  <div className="message-avatar">
+                    {message.role === "tool" ? <Terminal size={15} /> : messageAvatarLabel[message.role]}
                   </div>
-                  <div className="message-content">{renderTextBlocks(message)}</div>
-                </div>
-              </article>
-            ))
+                  <div className="message-body">
+                    <div className="message-head">
+                      <span className="message-author">{messageRoleLabel[message.role]}</span>
+                      {message.title && <span className="message-title">{message.title}</span>}
+                    </div>
+                    <div className="message-content">{renderTextBlocks(message)}</div>
+                  </div>
+                </article>
+              ))}
+            </>
           )}
-          {messages.length > 0 && <div ref={endRef} />}
+          {!loadingThreadId && messages.length > 0 && <div ref={endRef} />}
         </div>
 
         <form className="composer" onSubmit={submit}>
@@ -1272,6 +1543,68 @@ export default function App() {
               <button type="submit" className="primary-button">Сохранить</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {renamingThread && (
+        <div className="modal-backdrop" role="presentation">
+          <form className="profile-modal chat-modal" onSubmit={saveThreadTitle}>
+            <div className="modal-head">
+              <div>
+                <h2>Переименовать чат</h2>
+                <p>{renamingThread.cwd || selectedProfile?.projectPath}</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setRenamingThread(null)}>
+                <X size={16} />
+              </button>
+            </div>
+            <label>
+              Название
+              <input
+                value={renameValue}
+                onChange={(event) => setRenameValue(event.target.value)}
+                autoFocus
+                autoComplete="off"
+              />
+            </label>
+            <div className="modal-actions">
+              <button type="button" className="secondary-button" onClick={() => setRenamingThread(null)}>
+                Отмена
+              </button>
+              <button type="submit" className="primary-button">
+                Сохранить
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {deletingThread && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="profile-modal chat-modal confirm-modal">
+            <div className="modal-head">
+              <div>
+                <h2>Удалить чат?</h2>
+                <p>{displayTitleOf(deletingThread, threadMetadata[deletingThread.id])}</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setDeletingThread(null)}>
+                <X size={16} />
+              </button>
+            </div>
+            <p className="confirm-copy">
+              Чат исчезнет из списка. Если текущая версия Codex поддерживает архивирование,
+              он также будет архивирован на сервере.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="secondary-button" onClick={() => setDeletingThread(null)}>
+                Отмена
+              </button>
+              <button type="button" className="danger-button strong" onClick={() => void confirmDeleteThread()}>
+                <Trash2 size={15} />
+                Удалить
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

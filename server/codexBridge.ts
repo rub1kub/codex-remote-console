@@ -228,6 +228,10 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
     return this.request("thread/read", { threadId, includeTurns: true });
   }
 
+  async archiveThread(threadId: string) {
+    return this.request("thread/archive", { threadId });
+  }
+
   async startThread() {
     const result = (await this.request(
       "thread/start",

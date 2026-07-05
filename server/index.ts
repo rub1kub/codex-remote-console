@@ -257,6 +257,22 @@ export async function startServer(
             type: "thread",
             result: await bridge.readThread(message.threadId)
           });
+        } else if (message.type === "deleteThread") {
+          if (!message.threadId) throw new Error("threadId is required.");
+          let archived = false;
+          let archiveError: string | undefined;
+          try {
+            await bridge.archiveThread(message.threadId);
+            archived = true;
+          } catch (error) {
+            archiveError = error instanceof Error ? error.message : String(error);
+          }
+          send(ws, {
+            type: "threadDeleted",
+            threadId: message.threadId,
+            archived,
+            archiveError
+          });
         } else if (message.type === "resumeThread") {
           if (!message.threadId) throw new Error("threadId is required.");
           send(ws, {

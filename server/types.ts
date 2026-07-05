@@ -23,6 +23,8 @@ export type CodexProfile = {
 
 export type ThreadMetadata = {
   pinned?: boolean;
+  title?: string;
+  hidden?: boolean;
 };
 
 export type DirectoryEntry = {

@@ -34,6 +34,8 @@ export type AppPreferences = {
 
 export type ThreadMetadata = {
   pinned?: boolean;
+  title?: string;
+  hidden?: boolean;
 };
 
 export type DirectoryEntry = {
@@ -105,6 +107,7 @@ export type ServerMessage =
   | { type: "codexStatus"; status: string }
   | { type: "threads"; result: { data: CodexThread[]; nextCursor?: string | null } }
   | { type: "thread"; result: { thread: CodexThread } }
+  | { type: "threadDeleted"; threadId: string; archived: boolean; archiveError?: string }
   | { type: "turn"; result: { turn: Turn } }
   | { type: "notification"; message: { method: string; params: any } }
   | { type: "log"; line: string }

@@ -34,7 +34,7 @@ button,
 .project-row,
 .thread-row,
 .thread-main,
-.status-pill,
+.connection-chip,
 .settings-drawer,
 .message,
 .composer textarea {
@@ -496,7 +496,7 @@ textarea:focus {
 
 .project-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   gap: 2px 8px;
   align-items: center;
   width: 100%;
@@ -509,7 +509,7 @@ textarea:focus {
   cursor: pointer;
 }
 
-.project-row:disabled {
+.project-row[aria-disabled="true"] {
   cursor: wait;
   opacity: 0.7;
 }
@@ -582,6 +582,29 @@ textarea:focus {
   background: #fffaf0;
 }
 
+.project-disconnect {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid #f0b9b9;
+  border-radius: 7px;
+  background: #fff4f4;
+  color: #a93636;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.project-disconnect:hover {
+  border-color: #e79c9c;
+  background: #ffeaea;
+  color: #8f2525;
+}
+
 .session-head {
   margin-top: 2px;
 }
@@ -614,7 +637,7 @@ textarea:focus {
 
 .thread-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px;
   align-items: center;
   width: 100%;
@@ -643,6 +666,11 @@ textarea:focus {
   cursor: pointer;
 }
 
+.thread-main:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
 .thread-main span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -651,10 +679,17 @@ textarea:focus {
   font-weight: 650;
 }
 
-.thread-pin {
+.thread-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 3px;
+}
+
+.thread-action {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   place-items: center;
   border-radius: 7px;
   background: transparent;
@@ -662,10 +697,25 @@ textarea:focus {
   cursor: pointer;
 }
 
-.thread-pin:hover,
-.thread-row.pinned .thread-pin {
+.thread-action:hover,
+.thread-row.pinned .thread-action[aria-pressed="true"] {
   background: #eef4f1;
   color: #13735f;
+}
+
+.thread-action.danger:hover {
+  background: #fff0f0;
+  color: #a93636;
+}
+
+.thread-action:disabled {
+  cursor: wait;
+  opacity: 0.45;
+}
+
+.thread-loading {
+  margin: 0 3px;
+  color: #168a75;
 }
 
 .thread-group-label {
@@ -704,7 +754,7 @@ textarea:focus {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
 }
 
 .chat-header h1 {
@@ -722,38 +772,57 @@ textarea:focus {
   margin: 3px 0 0;
 }
 
-.status-pill {
+.header-settings {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid #d7ddd7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #4f5b54;
+  cursor: pointer;
+}
+
+.header-settings:hover {
+  border-color: #c8d2ca;
+  background: #f8faf8;
+  color: #26302a;
+}
+
+.connection-chip {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  height: 28px;
-  padding: 0 10px;
+  gap: 6px;
+  height: 30px;
+  padding: 0 9px;
   border: 1px solid #dce2dc;
-  border-radius: 999px;
+  border-radius: 8px;
+  background: #ffffff;
   color: #69736c;
   font-size: 12px;
   font-weight: 700;
 }
 
-.status-pill svg {
+.connection-chip svg {
   filter: drop-shadow(0 0 4px currentColor);
 }
 
-.status-pill.connected {
-  border-color: #b8ddd2;
+.connection-chip.connected {
+  border-color: #c8e0d8;
   color: #13735f;
-  background: #eef8f4;
+  background: #f7fbf9;
 }
 
-.status-pill.connected svg,
-.status-pill.connecting svg {
+.connection-chip.connected svg,
+.connection-chip.connecting svg {
   animation: pulseDot 1.7s ease-in-out infinite;
 }
 
-.status-pill.connecting {
+.connection-chip.connecting {
   border-color: #ead7a4;
   color: #8a651a;
-  background: #fff8e6;
+  background: #fffbef;
 }
 
 .error-banner {
@@ -805,7 +874,8 @@ textarea:focus {
   display: none;
 }
 
-.welcome {
+.welcome,
+.thread-loading-state {
   display: grid;
   place-items: center;
   align-content: center;
@@ -816,10 +886,85 @@ textarea:focus {
   text-align: center;
 }
 
-.welcome h2 {
+.welcome h2,
+.thread-loading-state h2 {
   margin: 14px 0 6px;
   color: #303833;
   font-size: 17px;
+}
+
+.thread-loading-state svg {
+  color: #168a75;
+}
+
+.thread-loading-state p {
+  margin: 0;
+}
+
+.steps-summary {
+  display: grid;
+  width: min(900px, 100%);
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid #dfe6e1;
+  border-radius: 10px;
+  background: #fbfcfb;
+}
+
+.steps-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  background: transparent;
+  color: #35413a;
+  cursor: pointer;
+  text-align: left;
+}
+
+.steps-toggle span {
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.steps-toggle small {
+  display: inline-grid;
+  min-width: 22px;
+  height: 20px;
+  place-items: center;
+  margin-left: auto;
+  border: 1px solid #d7ddd7;
+  border-radius: 999px;
+  color: #69736c;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.steps-list {
+  display: grid;
+  gap: 1px;
+  border-top: 1px solid #e4e9e4;
+}
+
+.step-item {
+  display: grid;
+  gap: 4px;
+  padding: 9px 12px;
+  background: #ffffff;
+}
+
+.step-item span {
+  color: #69736c;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.step-item p {
+  margin: 0;
+  color: #303833;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .message {
@@ -1077,6 +1222,17 @@ textarea:focus {
   animation: modalIn 180ms ease both;
 }
 
+.chat-modal {
+  width: min(460px, 100%);
+}
+
+.confirm-copy {
+  margin: 0;
+  color: #5e6861;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .modal-head {
   justify-content: space-between;
 }
@@ -1106,6 +1262,16 @@ textarea:focus {
   padding: 0 12px;
   background: #fff0f0;
   color: #9b2d2d;
+}
+
+.danger-button.strong {
+  border: 1px solid #d94f4f;
+  background: #c93636;
+  color: #ffffff;
+}
+
+.danger-button.strong:hover {
+  background: #a82929;
 }
 
 .settings-backdrop {
@@ -1481,8 +1647,8 @@ textarea:focus {
   transform: none;
 }
 
-.concept-calm-terminal .thread-pin:hover,
-.concept-calm-terminal .thread-row.pinned .thread-pin {
+.concept-calm-terminal .thread-action:hover,
+.concept-calm-terminal .thread-row.pinned .thread-action[aria-pressed="true"] {
   background: #23352f;
   color: #95eadb;
 }
@@ -1496,7 +1662,7 @@ textarea:focus {
   color: #68736c;
 }
 
-.concept-calm-terminal .status-pill {
+.concept-calm-terminal .connection-chip {
   border-radius: 6px;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   letter-spacing: 0;
@@ -1548,6 +1714,7 @@ textarea:focus {
 
 .theme-dark .chat-header h1,
 .theme-dark .welcome h2,
+.theme-dark .thread-loading-state h2,
 .theme-dark .message-author,
 .theme-dark .message-text,
 .theme-dark .settings-section h3,
@@ -1564,6 +1731,7 @@ textarea:focus {
 .theme-dark .thread-row small,
 .theme-dark .empty-note,
 .theme-dark .welcome p,
+.theme-dark .thread-loading-state p,
 .theme-dark .message-title {
   color: #9aa69e;
 }
@@ -1572,6 +1740,8 @@ textarea:focus {
 .theme-dark input,
 .theme-dark textarea,
 .theme-dark .icon-button,
+.theme-dark .header-settings,
+.theme-dark .connection-chip,
 .theme-dark .secondary-button,
 .theme-dark .small-command,
 .theme-dark .new-dialog-button,
@@ -1581,7 +1751,9 @@ textarea:focus {
 .theme-dark .folder-browser,
 .theme-dark .folder-browser-head,
 .theme-dark .segmented-control button,
-.theme-dark .cli-status-card > div {
+.theme-dark .cli-status-card > div,
+.theme-dark .steps-summary,
+.theme-dark .step-item {
   border-color: #2b352f;
   background: #171d19;
   color: #e7ece8;
@@ -1589,9 +1761,15 @@ textarea:focus {
 
 .theme-dark .settings-section,
 .theme-dark .message-body,
-.theme-dark .message.tool .message-body {
+.theme-dark .message.tool .message-body,
+.theme-dark .steps-list {
   border-color: #2b352f;
   background: #151a17;
+}
+
+.theme-dark .step-item p,
+.theme-dark .confirm-copy {
+  color: #cdd7d1;
 }
 
 .theme-dark .message-avatar {
@@ -1645,8 +1823,8 @@ textarea:focus {
   color: #ffb7b7;
 }
 
-.theme-dark .thread-pin:hover,
-.theme-dark .thread-row.pinned .thread-pin {
+.theme-dark .thread-action:hover,
+.theme-dark .thread-row.pinned .thread-action[aria-pressed="true"] {
   background: #22332d;
   color: #95eadb;
 }

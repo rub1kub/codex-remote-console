@@ -216,20 +216,39 @@ export async function getThreadMetadata() {
   return (await readStore()).threadMetadata;
 }
 
+function normalizeThreadMetadata(
+  current: ThreadMetadata,
+  input: Partial<ThreadMetadata>
+) {
+  const next: ThreadMetadata = { ...current };
+
+  if ("pinned" in input) {
+    next.pinned = input.pinned === true ? true : undefined;
+  }
+  if ("hidden" in input) {
+    next.hidden = input.hidden === true ? true : undefined;
+  }
+  if ("title" in input) {
+    next.title = cleanText(input.title) || undefined;
+  }
+
+  return next;
+}
+
+function hasThreadMetadata(metadata: ThreadMetadata) {
+  return Boolean(metadata.pinned || metadata.hidden || metadata.title);
+}
+
 export async function saveThreadMetadata(
   threadId: string,
   input: Partial<ThreadMetadata> = {}
 ) {
   const store = await readStore();
   const current = store.threadMetadata[threadId] ?? {};
-  const next = {
-    ...current,
-    pinned:
-      typeof input.pinned === "boolean" ? input.pinned : current.pinned
-  };
+  const next = normalizeThreadMetadata(current, input);
 
   const threadMetadata = { ...store.threadMetadata };
-  if (next.pinned) {
+  if (hasThreadMetadata(next)) {
     threadMetadata[threadId] = next;
   } else {
     delete threadMetadata[threadId];
