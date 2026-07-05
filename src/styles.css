@@ -809,6 +809,15 @@ textarea:focus {
   margin-top: auto;
 }
 
+.messages.empty {
+  align-items: center;
+  justify-content: center;
+}
+
+.messages.empty::before {
+  display: none;
+}
+
 .message {
   animation: messageIn 220ms ease both;
 }
@@ -818,8 +827,8 @@ textarea:focus {
   place-items: center;
   align-content: center;
   max-width: 440px;
-  margin: 0 auto;
-  padding: 28px 0 8px;
+  margin: 0;
+  padding: 0;
   color: #778079;
   text-align: center;
 }

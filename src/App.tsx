@@ -900,7 +900,7 @@ export default function App() {
           </div>
         )}
 
-        <div className="messages">
+        <div className={messages.length === 0 ? "messages empty" : "messages"}>
           {messages.length === 0 ? (
             <div className="welcome">
               <MessageSquare size={28} />
@@ -920,7 +920,7 @@ export default function App() {
               </article>
             ))
           )}
-          <div ref={endRef} />
+          {messages.length > 0 && <div ref={endRef} />}
         </div>
 
         <form className="composer" onSubmit={submit}>
