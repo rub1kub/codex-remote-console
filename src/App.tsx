@@ -1411,7 +1411,7 @@ export default function App() {
     .join(" ");
   const portalClassName = rootClassName.replace("app-shell", "app-portal");
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "0.1.0-alpha.2";
+  const appVersion = "0.1.0";
   const commandActions = useMemo<CommandAction[]>(
     () => [
       {
