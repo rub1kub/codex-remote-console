@@ -862,6 +862,8 @@ textarea:focus {
 
 .messages {
   grid-row: 3;
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -1172,16 +1174,20 @@ textarea:focus {
 
 .composer {
   grid-row: 4;
+  position: relative;
+  z-index: 20;
   width: 100%;
   max-width: 100%;
   min-width: 0;
   padding: 14px 28px 22px;
   border-top: 1px solid #eaede9;
   background: var(--composer-bg);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .composer-box {
+  position: relative;
+  z-index: 2;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
@@ -1221,15 +1227,18 @@ textarea:focus {
 }
 
 .composer-controls {
+  position: relative;
   gap: 8px;
 }
 
 .composer-toggles {
   gap: 4px;
+  min-width: 0;
 }
 
 .composer-menu-anchor {
   position: relative;
+  z-index: 3;
 }
 
 .composer-control {
@@ -1250,6 +1259,15 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.composer-settings-control {
+  max-width: 280px;
+  padding: 0 10px;
+}
+
+.composer-settings-control span:first-of-type {
+  color: #202422;
+}
+
 .composer-control span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1265,12 +1283,14 @@ textarea:focus {
 .composer-popover {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 8px);
-  z-index: 40;
+  bottom: calc(100% + 31px);
+  z-index: 1000;
   display: grid;
-  gap: 4px;
-  width: 210px;
-  padding: 8px;
+  gap: 6px;
+  width: min(320px, calc(100vw - 32px));
+  max-height: min(500px, calc(100vh - 160px));
+  overflow: auto;
+  padding: 10px;
   border: 1px solid #d8ded9;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.96);
@@ -1278,19 +1298,36 @@ textarea:focus {
   backdrop-filter: blur(18px);
 }
 
-.model-popover {
-  width: 230px;
+.settings-popover {
+  transform-origin: bottom right;
 }
 
-.speed-popover {
-  width: 230px;
+.popover-section {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #edf0ed;
 }
 
-.popover-label {
-  padding: 4px 8px;
+.popover-section:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.popover-section-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 8px;
   color: #8a948d;
   font-size: 12px;
   font-weight: 700;
+}
+
+.popover-section-head small {
+  margin-left: auto;
+  color: #8a948d;
+  font-size: 11px;
 }
 
 .popover-option {
@@ -1298,8 +1335,8 @@ textarea:focus {
   grid-template-columns: minmax(0, 1fr) 18px;
   align-items: center;
   gap: 8px;
-  min-height: 34px;
-  padding: 7px 8px;
+  min-height: 30px;
+  padding: 5px 8px;
   border-radius: 8px;
   background: transparent;
   color: #202422;
@@ -1317,6 +1354,7 @@ textarea:focus {
 
 .popover-option.stacked {
   grid-template-columns: minmax(0, 1fr) 18px;
+  min-height: 40px;
 }
 
 .popover-option.stacked small {
@@ -1977,6 +2015,15 @@ textarea:focus {
   background: #151a17;
 }
 
+.theme-dark .popover-section {
+  border-color: #27302b;
+}
+
+.theme-dark .popover-section-head,
+.theme-dark .popover-section-head small {
+  color: #8c9991;
+}
+
 .theme-dark .step-item p,
 .theme-dark .confirm-copy,
 .theme-dark .popover-option,
@@ -2093,6 +2140,8 @@ textarea:focus {
   }
 
   .sidebar {
+    position: relative;
+    z-index: 1;
     grid-row: 2;
     min-height: auto;
     overflow: visible;
@@ -2101,8 +2150,11 @@ textarea:focus {
   }
 
   .chat {
+    position: relative;
+    z-index: 2;
     grid-row: 3;
     min-height: 560px;
+    overflow: visible;
   }
 
   .thread-list {
@@ -2145,7 +2197,7 @@ textarea:focus {
 
   .composer-toggles {
     min-width: 0;
-    overflow-x: auto;
+    overflow: visible;
     padding-bottom: 1px;
   }
 
@@ -2156,6 +2208,8 @@ textarea:focus {
   .composer-popover {
     right: auto;
     left: 0;
+    bottom: calc(100% + 58px);
+    max-height: min(500px, calc(100vh - 180px));
   }
 
   .two-fields {

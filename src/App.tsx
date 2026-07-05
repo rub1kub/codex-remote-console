@@ -388,7 +388,7 @@ export default function App() {
     x: number;
     y: number;
   } | null>(null);
-  const [composerMenu, setComposerMenu] = useState<"reasoning" | "speed" | "model" | null>(null);
+  const [isComposerMenuOpen, setComposerMenuOpen] = useState(false);
   const [renamingThread, setRenamingThread] = useState<CodexThread | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deletingThread, setDeletingThread] = useState<CodexThread | null>(null);
@@ -453,13 +453,15 @@ export default function App() {
     activeThread ? threadMetadata[activeThread.id] : undefined
   );
   const selectedModelValue = selectedProfile?.model ?? "";
+  const selectedModelOption = modelOptions.find((option) => option.value === selectedModelValue);
   const selectedModelLabel =
-    modelOptions.find((option) => option.value === selectedModelValue)?.shortLabel ||
+    selectedModelOption?.shortLabel ||
     selectedModelValue.replace(/^gpt-/, "") ||
     "модель";
-  const selectedReasoningLabel =
-    reasoningOptions.find((option) => option.value === preferences.reasoningLevel)?.shortLabel ||
-    "ум";
+  const selectedReasoningOption = reasoningOptions.find(
+    (option) => option.value === preferences.reasoningLevel
+  );
+  const selectedReasoningLabel = selectedReasoningOption?.label || "Рассуждение";
   const selectedSpeedLabel =
     speedOptions.find((option) => option.value === preferences.responseSpeed)?.label ||
     "скорость";
@@ -485,7 +487,7 @@ export default function App() {
   useEffect(() => {
     const closeTransientMenus = () => {
       setThreadMenu(null);
-      setComposerMenu(null);
+      setComposerMenuOpen(false);
     };
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -827,12 +829,9 @@ export default function App() {
     });
   }
 
-  function toggleComposerMenu(
-    event: MouseEvent,
-    nextMenu: "reasoning" | "speed" | "model"
-  ) {
+  function toggleComposerMenu(event: MouseEvent) {
     event.stopPropagation();
-    setComposerMenu((current) => (current === nextMenu ? null : nextMenu));
+    setComposerMenuOpen((current) => !current);
   }
 
   async function updateSelectedModel(model: string) {
@@ -843,7 +842,7 @@ export default function App() {
 
     const previousProfiles = profiles;
     const nextModel = model || undefined;
-    setComposerMenu(null);
+    setComposerMenuOpen(false);
     setProfiles((current) =>
       current.map((profile) =>
         profile.id === selectedProfile.id
@@ -1434,93 +1433,78 @@ export default function App() {
                 <div className="composer-menu-anchor">
                   <button
                     type="button"
-                    className={`composer-control ${composerMenu === "reasoning" ? "active" : ""}`}
-                    onClick={(event) => toggleComposerMenu(event, "reasoning")}
-                    title="Рассуждение модели"
-                  >
-                    <Brain size={14} />
-                    <span>{selectedReasoningLabel}</span>
-                    <ChevronDown size={13} />
-                  </button>
-                  {composerMenu === "reasoning" && (
-                    <div className="composer-popover">
-                      <div className="popover-label">Рассуждение</div>
-                      {reasoningOptions.map((option) => (
-                        <button
-                          key={option.value}
-                          type="button"
-                          className="popover-option"
-                          onClick={() => {
-                            setComposerMenu(null);
-                            void updatePreferences({ reasoningLevel: option.value });
-                          }}
-                        >
-                          <span>{option.label}</span>
-                          {preferences.reasoningLevel === option.value && <Check size={15} />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="composer-menu-anchor">
-                  <button
-                    type="button"
-                    className={`composer-control ${composerMenu === "model" ? "active" : ""}`}
-                    onClick={(event) => toggleComposerMenu(event, "model")}
-                    title="Модель"
+                    className={`composer-control composer-settings-control ${isComposerMenuOpen ? "active" : ""}`}
+                    onClick={toggleComposerMenu}
+                    title="Модель и режим ответа"
                   >
                     <Gauge size={14} />
                     <span>{selectedModelLabel}</span>
+                    <span>{selectedReasoningLabel}</span>
                     <ChevronDown size={13} />
                   </button>
-                  {composerMenu === "model" && (
-                    <div className="composer-popover model-popover">
-                      <div className="popover-label">Модель</div>
-                      {modelOptions.map((option) => (
-                        <button
-                          key={option.value || "default"}
-                          type="button"
-                          className="popover-option"
-                          onClick={() => void updateSelectedModel(option.value)}
-                        >
-                          <span>{option.label}</span>
-                          {selectedModelValue === option.value && <Check size={15} />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                  {isComposerMenuOpen && (
+                    <div className="composer-popover settings-popover">
+                      <section className="popover-section">
+                        <div className="popover-section-head">
+                          <Brain size={14} />
+                          <span>Рассуждение</span>
+                        </div>
+                        {reasoningOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            className="popover-option"
+                            onClick={() => {
+                              setComposerMenuOpen(false);
+                              void updatePreferences({ reasoningLevel: option.value });
+                            }}
+                          >
+                            <span>{option.label}</span>
+                            {preferences.reasoningLevel === option.value && <Check size={15} />}
+                          </button>
+                        ))}
+                      </section>
 
-                <div className="composer-menu-anchor">
-                  <button
-                    type="button"
-                    className={`composer-control ${composerMenu === "speed" ? "active" : ""}`}
-                    onClick={(event) => toggleComposerMenu(event, "speed")}
-                    title="Скорость ответа"
-                  >
-                    <Zap size={14} />
-                    <span>{selectedSpeedLabel}</span>
-                    <ChevronDown size={13} />
-                  </button>
-                  {composerMenu === "speed" && (
-                    <div className="composer-popover speed-popover">
-                      <div className="popover-label">Скорость</div>
-                      {speedOptions.map((option) => (
-                        <button
-                          key={option.value}
-                          type="button"
-                          className="popover-option stacked"
-                          onClick={() => {
-                            setComposerMenu(null);
-                            void updatePreferences({ responseSpeed: option.value });
-                          }}
-                        >
-                          <span>{option.label}</span>
-                          <small>{option.description}</small>
-                          {preferences.responseSpeed === option.value && <Check size={15} />}
-                        </button>
-                      ))}
+                      <section className="popover-section">
+                        <div className="popover-section-head">
+                          <Gauge size={14} />
+                          <span>Модель</span>
+                        </div>
+                        {modelOptions.map((option) => (
+                          <button
+                            key={option.value || "default"}
+                            type="button"
+                            className="popover-option"
+                            onClick={() => void updateSelectedModel(option.value)}
+                          >
+                            <span>{option.label}</span>
+                            {selectedModelValue === option.value && <Check size={15} />}
+                          </button>
+                        ))}
+                      </section>
+
+                      <section className="popover-section">
+                        <div className="popover-section-head">
+                          <Zap size={14} />
+                          <span>Скорость</span>
+                          <small>{selectedSpeedLabel}</small>
+                        </div>
+                        {speedOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            className="popover-option stacked"
+                            onClick={() => {
+                              setComposerMenuOpen(false);
+                              void updatePreferences({ responseSpeed: option.value });
+                            }}
+                          >
+                            <span>{option.label}</span>
+                            <small>{option.description}</small>
+                            {preferences.responseSpeed === option.value && <Check size={15} />}
+                          </button>
+                        ))}
+                      </section>
                     </div>
                   )}
                 </div>
