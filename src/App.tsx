@@ -764,15 +764,15 @@ export default function App() {
             </div>
           </div>
 
-          <div className="connection-strip">
-            <div className="connection-copy">
-              <span className={`connection-dot ${connection}`} />
-              <div>
-                <strong>{currentProjectTitle}</strong>
-                <small>{selectedProfile?.projectPath || "Выберите папку проекта"}</small>
+          {selectedProfile && (
+            <div className="connection-strip">
+              <div className="connection-copy">
+                <span className={`connection-dot ${connection}`} />
+                <div>
+                  <strong>{currentProjectTitle}</strong>
+                  <small>{selectedProfile.projectPath}</small>
+                </div>
               </div>
-            </div>
-            {selectedProfileId && (
               <button
                 className="connect-action"
                 onClick={connection === "connected" ? disconnect : connect}
@@ -791,8 +791,8 @@ export default function App() {
                     ? "Ждем"
                     : "Подключить"}
               </button>
-            )}
-          </div>
+            </div>
+          )}
         </section>
 
         <section className="project-panel">
