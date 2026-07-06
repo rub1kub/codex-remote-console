@@ -73,6 +73,19 @@ export type FileSearchResult = {
   label: string;
 };
 
+export type UserInput =
+  | { type: "text"; text: string; text_elements?: unknown[] }
+  | { type: "image"; url: string; detail?: "auto" | "low" | "high" | "original" | null }
+  | { type: "localImage"; path: string; detail?: "auto" | "low" | "high" | "original" | null }
+  | { type: "mention"; name: string; path: string }
+  | { type: "skill"; name: string; path: string };
+
+export type ReviewTarget =
+  | { type: "uncommittedChanges" }
+  | { type: "baseBranch"; branch: string }
+  | { type: "commit"; sha: string; title?: string | null }
+  | { type: "custom"; instructions: string };
+
 export type DirectoryListInput = Partial<
   Pick<
     CodexProfile,

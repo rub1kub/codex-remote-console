@@ -24,6 +24,7 @@ import {
   searchProjectFiles,
   updateCodexCli
 } from "./remoteExec";
+import type { ReviewTarget, UserInput } from "./types";
 
 type StartServerOptions = {
   host?: string;
@@ -72,7 +73,7 @@ export async function startServer(
     options.isProduction ?? process.env.NODE_ENV === "production";
 
   const app = express();
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: "25mb" }));
 
   app.get("/api/health", (_request, response) => {
     response.json({ ok: true });
@@ -238,6 +239,13 @@ export async function startServer(
           threadId?: string;
           text?: string;
           searchTerm?: string;
+          archived?: boolean;
+          input?: UserInput[];
+          requestId?: number | string;
+          result?: unknown;
+          target?: ReviewTarget;
+          effort?: string | null;
+          serviceTier?: string | null;
         };
         messageType = message.type;
 
@@ -340,6 +348,7 @@ export async function startServer(
             type: "threads",
             result: await bridge.listThreads({
               searchTerm: message.searchTerm,
+              archived: Boolean(message.archived),
               limit: (await getPreferences()).historyLimit
             })
           });
@@ -385,18 +394,39 @@ export async function startServer(
         } else if (message.type === "compactThread") {
           if (!message.threadId) throw new Error("threadId is required.");
           send(ws, { type: "turn", result: await bridge.compactThread(message.threadId) });
+        } else if (message.type === "unarchiveThread") {
+          if (!message.threadId) throw new Error("threadId is required.");
+          await bridge.unarchiveThread(message.threadId);
+          send(ws, {
+            type: "threadDeleted",
+            threadId: message.threadId,
+            archived: false
+          });
         } else if (message.type === "resumeThread") {
           if (!message.threadId) throw new Error("threadId is required.");
           send(ws, {
             type: "thread",
             result: await bridge.resumeThread(message.threadId)
           });
-        } else if (message.type === "sendMessage") {
-          const text = message.text?.trim();
-          if (!text) throw new Error("Message is empty.");
+        } else if (message.type === "reviewStart") {
+          if (!message.target) throw new Error("review target is required.");
           send(ws, {
             type: "turn",
-            result: await bridge.sendTurn(text, message.threadId)
+            result: await bridge.startReview(message.target, message.threadId)
+          });
+        } else if (message.type === "respondRequest") {
+          if (message.requestId === undefined) throw new Error("requestId is required.");
+          bridge.respondRequest(message.requestId, message.result ?? {});
+        } else if (message.type === "sendMessage") {
+          const text = message.text?.trim();
+          const input = Array.isArray(message.input) ? message.input : [];
+          if (!text && input.length === 0) throw new Error("Message is empty.");
+          send(ws, {
+            type: "turn",
+            result: await bridge.sendTurn(text ?? "", message.threadId, input, {
+              effort: typeof message.effort === "string" ? message.effort : null,
+              serviceTier: typeof message.serviceTier === "string" ? message.serviceTier : null
+            })
           });
         } else if (message.type === "interrupt") {
           send(ws, { type: "interrupt", result: await bridge.interrupt() });

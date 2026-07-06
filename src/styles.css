@@ -195,6 +195,26 @@ button:active {
   font-weight: 750;
 }
 
+.archive-toggle {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d7ddd7;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #5f6a63;
+  cursor: pointer;
+}
+
+.archive-toggle.active,
+.archive-toggle:hover {
+  border-color: #bfe0d8;
+  background: #eff8f5;
+  color: #13735f;
+}
+
 .small-command,
 .new-dialog-button {
   padding: 0 9px;
@@ -1669,6 +1689,52 @@ textarea:focus {
   box-shadow: 0 1px 0 rgba(24, 30, 26, 0.04);
 }
 
+.hidden-file-input {
+  display: none;
+}
+
+.attachment-strip {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 2px 0;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  min-height: 30px;
+  padding: 4px 7px;
+  border: 1px solid #d7ddd7;
+  border-radius: 8px;
+  background: #f8faf8;
+  color: #38423c;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.attachment-chip:hover {
+  border-color: #f0b7b7;
+  color: #a93535;
+}
+
+.attachment-chip img {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.attachment-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .composer-suggest {
   position: absolute;
   right: 7px;
@@ -1748,6 +1814,24 @@ textarea:focus {
   position: relative;
   gap: 7px;
   padding-left: 6px;
+}
+
+.composer-icon-button {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dce4de;
+  border-radius: 10px;
+  background: #f8faf8;
+  color: #5d6761;
+  cursor: pointer;
+}
+
+.composer-icon-button:hover:not(:disabled) {
+  border-color: #bfe0d8;
+  color: #13735f;
 }
 
 .composer-toggles {
@@ -2183,6 +2267,104 @@ textarea:focus {
   color: #303833;
   font-size: 12px;
   font-weight: 850;
+}
+
+.diff-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid #e5eae5;
+}
+
+.diff-head h3 {
+  border-bottom: 0;
+}
+
+.diff-lines {
+  display: grid;
+  max-height: min(520px, 55vh);
+  overflow: auto;
+  padding: 8px 0;
+  background: #fbfcfb;
+}
+
+.diff-lines code {
+  min-height: 19px;
+  padding: 0 10px;
+  color: #26302a;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.diff-lines code.add {
+  background: rgba(20, 145, 103, 0.08);
+  color: #126b54;
+}
+
+.diff-lines code.del {
+  background: rgba(200, 54, 54, 0.08);
+  color: #a93535;
+}
+
+.diff-lines code.hunk {
+  background: rgba(38, 48, 42, 0.06);
+  color: #5d6761;
+  font-weight: 800;
+}
+
+.diff-lines code.file {
+  color: #13735f;
+  font-weight: 850;
+}
+
+.approval-backdrop {
+  z-index: var(--z-modal);
+}
+
+.approval-modal {
+  width: min(720px, calc(100vw - 40px));
+}
+
+.approval-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #f0d5d5;
+  border-radius: 8px;
+  background: #fff8f8;
+  color: #a93535;
+}
+
+.approval-body pre {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  color: #29322d;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.approval-meta {
+  display: grid;
+  gap: 4px;
+  color: #69736c;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.approval-meta code {
+  overflow: hidden;
+  padding: 7px 8px;
+  border: 1px solid #dfe5df;
+  border-radius: 7px;
+  background: #fbfcfb;
+  color: #29322d;
+  text-overflow: ellipsis;
 }
 
 .diff-viewer pre,
@@ -3057,6 +3239,9 @@ textarea:focus {
 .theme-dark .connection-chip,
 .theme-dark .composer-box,
 .theme-dark .composer-control,
+.theme-dark .composer-icon-button,
+.theme-dark .archive-toggle,
+.theme-dark .attachment-chip,
 .theme-dark .popover-option,
 .theme-dark .thread-context-menu,
 .theme-dark .secondary-button,
@@ -3086,6 +3271,7 @@ textarea:focus {
 .theme-dark .command-result,
 .theme-dark .health-grid > div,
 .theme-dark .quick-command-list button,
+.theme-dark .approval-meta code,
 .theme-dark .bootstrap-card {
   border-color: #2b352f;
   background: #171d19;
@@ -3220,6 +3406,47 @@ textarea:focus {
 .theme-dark .health-grid strong,
 .theme-dark .command-result strong {
   border-color: #2b352f;
+  color: #edf3ef;
+}
+
+.theme-dark .diff-head {
+  border-color: #2b352f;
+}
+
+.theme-dark .diff-lines {
+  background: #171d19;
+}
+
+.theme-dark .diff-lines code {
+  color: #dce5df;
+}
+
+.theme-dark .diff-lines code.add {
+  background: rgba(124, 225, 203, 0.08);
+  color: #7ce1cb;
+}
+
+.theme-dark .diff-lines code.del {
+  background: rgba(255, 157, 157, 0.08);
+  color: #ff9d9d;
+}
+
+.theme-dark .diff-lines code.hunk {
+  background: rgba(255, 255, 255, 0.05);
+  color: #9aa69e;
+}
+
+.theme-dark .diff-lines code.file {
+  color: #82deca;
+}
+
+.theme-dark .approval-body {
+  border-color: #5c2a2d;
+  background: #241718;
+  color: #ff9d9d;
+}
+
+.theme-dark .approval-body pre {
   color: #edf3ef;
 }
 
@@ -3373,15 +3600,15 @@ textarea:focus {
 
 @media (max-width: 840px) {
   body {
-    overflow: auto;
+    overflow: hidden;
   }
 
   .app-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: var(--titlebar-height) auto minmax(0, 1fr);
-    height: auto;
+    grid-template-rows: var(--titlebar-height) minmax(180px, 32vh) minmax(0, 1fr);
+    height: 100vh;
     min-height: 100vh;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .window-titlebar {
@@ -3394,8 +3621,8 @@ textarea:focus {
     position: relative;
     z-index: 1;
     grid-row: 2;
-    min-height: auto;
-    overflow: visible;
+    min-height: 0;
+    overflow: auto;
     border-right: 0;
     border-bottom: 1px solid #dfe3df;
   }
@@ -3404,12 +3631,12 @@ textarea:focus {
     position: relative;
     z-index: 2;
     grid-row: 3;
-    min-height: 560px;
-    overflow: visible;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .thread-list {
-    max-height: 240px;
+    max-height: none;
   }
 
   .chat-header,

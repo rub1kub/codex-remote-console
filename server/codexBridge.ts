@@ -10,8 +10,10 @@ import type {
   CodexProfile,
   ConnectionSecrets,
   JsonRpcMessage,
+  ReviewTarget,
   SandboxMode,
-  ThreadListOptions
+  ThreadListOptions,
+  UserInput
 } from "./types";
 
 type PendingRequest = {
@@ -84,17 +86,35 @@ function buildThreadParams(profile: CodexProfile) {
 function buildTurnParams(
   profile: CodexProfile,
   threadId: string,
-  text: string
+  input: UserInput[],
+  options: { effort?: string | null; serviceTier?: string | null } = {}
 ) {
   return {
     threadId,
-    input: [{ type: "text", text, text_elements: [] }],
+    input,
     cwd: profile.projectPath,
     approvalPolicy: profile.approvalPolicy,
     approvalsReviewer: "user",
     sandboxPolicy: toSandboxPolicy(profile.sandboxMode, profile.projectPath),
-    model: profile.model || null
+    model: profile.model || null,
+    effort: options.effort ?? null,
+    serviceTier: options.serviceTier ?? null
   };
+}
+
+function buildTurnInput(text: string, input: UserInput[] = []) {
+  const cleanText = text.trim();
+  const nextInput = input.length
+    ? input
+    : cleanText
+      ? [{ type: "text" as const, text: cleanText, text_elements: [] }]
+      : [];
+
+  if (cleanText && !nextInput.some((item) => item.type === "text")) {
+    return [{ type: "text" as const, text: cleanText, text_elements: [] }, ...nextInput];
+  }
+
+  return nextInput;
 }
 
 function codexMissingMessage(profile: CodexProfile) {
@@ -219,7 +239,7 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       clientInfo: {
         name: "codex_remote_console",
         title: "Codex Remote Console",
-        version: "0.1.0"
+        version: "1.1.0"
       },
       capabilities: {
         experimentalApi: true
@@ -308,7 +328,12 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
     return result;
   }
 
-  async sendTurn(text: string, threadId?: string) {
+  async sendTurn(
+    text: string,
+    threadId?: string,
+    input: UserInput[] = [],
+    options: { effort?: string | null; serviceTier?: string | null } = {}
+  ) {
     if (threadId && threadId !== this.activeThreadId) {
       await this.resumeThread(threadId);
     }
@@ -323,12 +348,41 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       throw new Error("Codex did not return a thread id.");
     }
 
+    const turnInput = buildTurnInput(text, input);
+    if (turnInput.length === 0) {
+      throw new Error("Message is empty.");
+    }
+
     const result = (await this.request(
       "turn/start",
-      buildTurnParams(this.profile, targetThreadId, text)
+      buildTurnParams(this.profile, targetThreadId, turnInput, options)
     )) as { turn?: { id?: string } };
     this.activeThreadId = targetThreadId;
     this.activeTurnId = result.turn?.id;
+    return result;
+  }
+
+  async startReview(target: ReviewTarget, threadId?: string) {
+    if (threadId && threadId !== this.activeThreadId) {
+      await this.resumeThread(threadId);
+    }
+
+    let targetThreadId = threadId ?? this.activeThreadId;
+    if (!targetThreadId) {
+      const started = (await this.startThread()) as { thread?: { id?: string } };
+      targetThreadId = started.thread?.id;
+    }
+
+    if (!targetThreadId) {
+      throw new Error("Codex did not return a thread id.");
+    }
+
+    const result = await this.request("review/start", {
+      threadId: targetThreadId,
+      target,
+      delivery: null
+    });
+    this.activeThreadId = targetThreadId;
     return result;
   }
 
@@ -340,6 +394,13 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       threadId: this.activeThreadId,
       turnId: this.activeTurnId
     });
+  }
+
+  respondRequest(id: number | string, result: unknown) {
+    if (!this.canWriteRpc()) {
+      throw new Error("Codex app-server is not connected.");
+    }
+    this.writeRpc({ id, result });
   }
 
   private startSpawn() {

@@ -1,4 +1,5 @@
 import {
+  Archive,
   ArrowLeft,
   ArrowUp,
   Brain,
@@ -13,11 +14,13 @@ import {
   FolderOpen,
   Gauge,
   History,
+  Image as ImageIcon,
   KeyRound,
   Loader2,
   MessageSquare,
   Monitor,
   Moon,
+  Paperclip,
   Pencil,
   Plus,
   Pin,
@@ -25,11 +28,13 @@ import {
   RefreshCw,
   Search,
   Server,
+  ShieldAlert,
   SlidersHorizontal,
   Square,
   Sun,
   Terminal,
   Trash2,
+  Upload,
   X,
   Zap
 } from "lucide-react";
@@ -47,9 +52,11 @@ import type {
   ProjectCommandResult,
   ProjectDiff,
   ProjectHealth,
+  ReviewTarget,
   ServerMessage,
   ThreadMetadata,
-  ThreadItem
+  ThreadItem,
+  UserInput
 } from "./types";
 
 type ConnectionState = "idle" | "connecting" | "connected";
@@ -105,6 +112,22 @@ type QueuedTask = {
   id: string;
   text: string;
   createdAt: number;
+  input?: UserInput[];
+  attachments?: ComposerAttachment[];
+};
+type ComposerAttachment = {
+  id: string;
+  name: string;
+  kind: "image" | "file" | "mention";
+  size?: number;
+  url?: string;
+  path?: string;
+  text?: string;
+};
+type ApprovalRequest = {
+  requestId: number | string;
+  method: string;
+  params: any;
 };
 type DiffPanelState = {
   open: boolean;
@@ -542,6 +565,73 @@ function packageScriptCommand(packageManager: string, script: string) {
   return `npm run ${script}`;
 }
 
+function attachmentToInput(attachment: ComposerAttachment): UserInput | null {
+  if (attachment.kind === "image" && attachment.url) {
+    return { type: "image", url: attachment.url, detail: "auto" };
+  }
+  if (attachment.kind === "mention" && attachment.path) {
+    return { type: "mention", name: attachment.name, path: attachment.path };
+  }
+  if (attachment.kind === "file" && attachment.text) {
+    return {
+      type: "text",
+      text: `<attachment name="${attachment.name}">\n${attachment.text}\n</attachment>`,
+      text_elements: []
+    };
+  }
+  if (attachment.kind === "file" && attachment.path) {
+    return {
+      type: "mention",
+      name: attachment.name,
+      path: attachment.path
+    };
+  }
+  return null;
+}
+
+function attachmentsToInput(text: string, attachments: ComposerAttachment[]) {
+  const input: UserInput[] = [];
+  const cleanText = text.trim();
+  if (cleanText) {
+    input.push({ type: "text", text: cleanText, text_elements: [] });
+  }
+  attachments.forEach((attachment) => {
+    const item = attachmentToInput(attachment);
+    if (item) input.push(item);
+  });
+  return input;
+}
+
+function attachmentSummary(attachments: ComposerAttachment[]) {
+  if (attachments.length === 0) return "";
+  return attachments.map((item) => item.name).join(", ");
+}
+
+function parseReviewTarget(argument: string): ReviewTarget {
+  const clean = argument.trim();
+  if (!clean || clean === "changes" || clean === "uncommitted") {
+    return { type: "uncommittedChanges" };
+  }
+  const [kind, ...rest] = clean.split(/\s+/);
+  const value = rest.join(" ").trim();
+  if (kind === "base" && value) return { type: "baseBranch", branch: value };
+  if (kind === "commit" && value) return { type: "commit", sha: value };
+  return { type: "custom", instructions: clean };
+}
+
+function diffLineClass(line: string) {
+  if (line.startsWith("+") && !line.startsWith("+++")) return "add";
+  if (line.startsWith("-") && !line.startsWith("---")) return "del";
+  if (line.startsWith("@@")) return "hunk";
+  if (line.startsWith("diff --git")) return "file";
+  return "";
+}
+
+function reasoningEffortValue(level: AppPreferences["reasoningLevel"]) {
+  if (level === "very-high") return "very-high";
+  return level;
+}
+
 function threadToMessages(thread: CodexThread | null): ChatMessage[] {
   if (!thread?.turns) return [];
   return thread.turns
@@ -843,6 +933,9 @@ export default function App() {
   const [fileMentionQuery, setFileMentionQuery] = useState("");
   const [fileMentionResults, setFileMentionResults] = useState<FileSearchResult[]>([]);
   const [isFileMentionLoading, setFileMentionLoading] = useState(false);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null);
+  const [showArchivedThreads, setShowArchivedThreads] = useState(false);
   const [recoveryTask, setRecoveryTask] = useState<StoredActiveTask | null>(() => readStoredActiveTask());
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [isReconnectPaused, setReconnectPaused] = useState(false);
@@ -868,6 +961,7 @@ export default function App() {
   const taskCommandsRef = useRef<TaskCommandSummary[]>([]);
   const taskFilesRef = useRef<FileSummary[]>([]);
   const fileMentionTimerRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId),
@@ -1019,6 +1113,12 @@ export default function App() {
     searchRef.current = search;
     writeStoredUiState({ search });
   }, [search]);
+
+  useEffect(() => {
+    if (connection === "connected") {
+      send({ type: "listThreads", searchTerm: searchRef.current, archived: showArchivedThreads });
+    }
+  }, [showArchivedThreads, connection]);
 
   useEffect(() => {
     if (selectedProfileId) {
@@ -1311,7 +1411,8 @@ export default function App() {
   }
 
   function applyFileMention(file: FileSearchResult) {
-    setInput((current) => current.replace(/@([^\s@]{1,80})$/, `@${file.path} `));
+    setInput((current) => current.replace(/@([^\s@]{1,80})$/, ""));
+    addMentionAttachment(file);
     setFileMentionResults([]);
     setFileMentionQuery("");
   }
@@ -1420,18 +1521,82 @@ export default function App() {
     }
   }
 
+  async function buildAttachmentFromFile(file: File): Promise<ComposerAttachment> {
+    const id = `att-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const fileWithPath = file as File & { path?: string };
+    if (file.type.startsWith("image/")) {
+      const url = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error ?? new Error("Не удалось прочитать изображение."));
+        reader.readAsDataURL(file);
+      });
+      return {
+        id,
+        name: file.name,
+        kind: "image",
+        size: file.size,
+        url,
+        path: fileWithPath.path
+      };
+    }
+
+    let text = "";
+    if (file.size <= 220_000 && /^text\/|json|xml|yaml|javascript|typescript|markdown/i.test(file.type || file.name)) {
+      text = await file.text();
+    }
+
+    return {
+      id,
+      name: file.name,
+      kind: "file",
+      size: file.size,
+      path: fileWithPath.path,
+      text: text.slice(0, 120_000)
+    };
+  }
+
+  async function addFiles(fileList: FileList | File[]) {
+    const files = Array.from(fileList).slice(0, 6);
+    if (files.length === 0) return;
+    try {
+      const next = await Promise.all(files.map((file) => buildAttachmentFromFile(file)));
+      setAttachments((current) => [...current, ...next].slice(0, 10));
+      addLog(`Добавлено вложений: ${next.length}`);
+    } catch (attachmentError) {
+      setError(attachmentError instanceof Error ? attachmentError.message : "Не удалось добавить вложение.");
+    }
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((current) => current.filter((attachment) => attachment.id !== id));
+  }
+
+  function addMentionAttachment(file: FileSearchResult) {
+    setAttachments((current) => [
+      ...current,
+      {
+        id: `mention-${Date.now()}-${file.path}`,
+        name: file.label || file.path.split("/").pop() || file.path,
+        kind: "mention",
+        path: file.path
+      }
+    ]);
+  }
+
   function resetTaskCollectors() {
     taskCommandsRef.current = [];
     taskFilesRef.current = [];
     setLastTaskSummary(null);
   }
 
-  function startTask(text: string) {
+  function startTask(text: string, inputItems: UserInput[] = [], taskAttachments: ComposerAttachment[] = []) {
     const clean = text.trim();
-    if (!clean || connectionRef.current !== "connected") return;
+    if ((!clean && inputItems.length === 0) || connectionRef.current !== "connected") return;
 
     const profileId = selectedProfileIdRef.current;
     const threadId = activeThreadRef.current?.id;
+    const title = previewText(clean || attachmentSummary(taskAttachments) || "Вложения");
     resetTaskCollectors();
     setError("");
     setBusy(true);
@@ -1445,27 +1610,43 @@ export default function App() {
     writeStoredActiveTask({
       profileId,
       threadId,
-      title: previewText(clean),
+      title,
       startedAt
     });
     setRecoveryTask(readStoredActiveTask());
     setMessages((current) => [
       ...current,
-      { id: `local-${Date.now()}`, role: "user", text: clean }
+      {
+        id: `local-${Date.now()}`,
+        role: "user",
+        text: [
+          clean,
+          taskAttachments.length ? `\n\nВложения: ${attachmentSummary(taskAttachments)}` : ""
+        ].filter(Boolean).join("")
+      }
     ]);
     send({
       type: "sendMessage",
       threadId,
-      text: clean
+      text: clean,
+      input: inputItems,
+      effort: reasoningEffortValue(preferencesRef.current.reasoningLevel),
+      serviceTier: preferencesRef.current.responseSpeed === "fast" ? "fast" : null
     });
   }
 
-  function enqueueTask(text: string) {
+  function enqueueTask(text: string, inputItems: UserInput[] = [], taskAttachments: ComposerAttachment[] = []) {
     const clean = text.trim();
-    if (!clean) return;
+    if (!clean && inputItems.length === 0) return;
     setTaskQueue((current) => [
       ...current,
-      { id: `queue-${Date.now()}-${current.length}`, text: clean, createdAt: Date.now() }
+      {
+        id: `queue-${Date.now()}-${current.length}`,
+        text: clean,
+        input: inputItems,
+        attachments: taskAttachments,
+        createdAt: Date.now()
+      }
     ]);
     addLog("Задача добавлена в очередь");
   }
@@ -1474,7 +1655,7 @@ export default function App() {
     const [next] = taskQueueRef.current;
     if (!next) return;
     setTaskQueue((current) => current.filter((item) => item.id !== next.id));
-    startTask(next.text);
+    startTask(next.text, next.input ?? [], next.attachments ?? []);
   }
 
   function scheduleReconnect(reason: string) {
@@ -1625,8 +1806,78 @@ export default function App() {
     }
 
     if (message.type === "notification") {
-      handleNotification(message.message.method, message.message.params);
+      const notificationMethod = message.message.method;
+      if (
+        notificationMethod &&
+        message.message.id !== undefined &&
+        [
+          "item/commandExecution/requestApproval",
+          "item/fileChange/requestApproval",
+          "item/permissions/requestApproval",
+          "mcpServer/elicitation/request"
+        ].includes(notificationMethod)
+      ) {
+        setApprovalRequest({
+          requestId: message.message.id,
+          method: notificationMethod,
+          params: message.message.params
+        });
+        setTaskActivity("Жду подтверждения");
+        return;
+      }
+      if (notificationMethod) {
+        handleNotification(notificationMethod, message.message.params);
+      }
     }
+  }
+
+  function approvalTitle(method: string) {
+    if (method.includes("commandExecution")) return "Подтвердить команду";
+    if (method.includes("fileChange")) return "Подтвердить изменение файлов";
+    if (method.includes("permissions")) return "Расширить доступ";
+    if (method.includes("mcpServer")) return "MCP запрашивает ввод";
+    return "Требуется подтверждение";
+  }
+
+  function approvalBody(request: ApprovalRequest) {
+    const params = request.params ?? {};
+    if (request.method.includes("commandExecution")) {
+      return params.command || params.reason || "Codex хочет выполнить команду.";
+    }
+    if (request.method.includes("fileChange")) {
+      return params.reason || params.grantRoot || "Codex хочет изменить файлы.";
+    }
+    if (request.method.includes("permissions")) {
+      return params.reason || params.cwd || "Codex просит дополнительные права.";
+    }
+    return params.reason || "Codex ожидает решение.";
+  }
+
+  function respondApproval(decision: "accept" | "acceptForSession" | "decline" | "cancel") {
+    if (!approvalRequest) return;
+    const params = approvalRequest.params ?? {};
+    let result: unknown = { decision };
+
+    if (approvalRequest.method.includes("permissions")) {
+      result =
+        decision === "accept" || decision === "acceptForSession"
+          ? {
+              permissions: params.permissions ?? {},
+              scope: decision === "acceptForSession" ? "session" : "turn",
+              strictAutoReview: false
+            }
+          : { permissions: {}, scope: "turn", strictAutoReview: false };
+    } else if (approvalRequest.method.includes("mcpServer")) {
+      result = { action: decision === "accept" || decision === "acceptForSession" ? "accept" : decision === "cancel" ? "cancel" : "decline" };
+    }
+
+    send({
+      type: "respondRequest",
+      requestId: approvalRequest.requestId,
+      result
+    });
+    addLog(`${approvalTitle(approvalRequest.method)}: ${decision}`);
+    setApprovalRequest(null);
   }
 
   function notifyCompletion() {
@@ -2073,12 +2324,12 @@ export default function App() {
     }
   }
 
-  function submitTaskOrQueue(text: string) {
+  function submitTaskOrQueue(text: string, inputItems: UserInput[] = [], taskAttachments: ComposerAttachment[] = []) {
     if (isBusy) {
-      enqueueTask(text);
+      enqueueTask(text, inputItems, taskAttachments);
       return;
     }
-    startTask(text);
+    startTask(text, inputItems, taskAttachments);
   }
 
   function archiveActiveThread() {
@@ -2087,6 +2338,12 @@ export default function App() {
     setThreads((current) => current.filter((thread) => thread.id !== activeThread.id));
     setActiveThread(null);
     setMessages([]);
+  }
+
+  function unarchiveThread(thread: CodexThread) {
+    send({ type: "unarchiveThread", threadId: thread.id });
+    setThreads((current) => current.filter((item) => item.id !== thread.id));
+    addLog("Восстанавливаю чат из архива");
   }
 
   function forkActiveThread() {
@@ -2101,6 +2358,25 @@ export default function App() {
     setBusy(true);
     setTaskActivity("Сжимаю контекст");
     addLog("Сжимаю контекст чата");
+  }
+
+  function startNativeReview(target: ReviewTarget = { type: "uncommittedChanges" }) {
+    if (connection !== "connected") {
+      setError("Сначала подключитесь к проекту.");
+      return;
+    }
+    setBusy(true);
+    setTaskActivity("Запускаю review");
+    resetTaskCollectors();
+    send({
+      type: "reviewStart",
+      threadId: activeThread?.id,
+      target
+    });
+  }
+
+  function codexCommand(subcommand: string) {
+    return `${selectedProfile?.codexBin || "codex"} ${subcommand}`.trim();
   }
 
   function handleSlashInput(text: string) {
@@ -2158,22 +2434,29 @@ export default function App() {
         setInput("@");
         return true;
       case "review":
-        submitTaskOrQueue(argument || "Проведи code review текущих изменений. Покажи только важные баги, риски и недостающие проверки.");
+        startNativeReview(parseReviewTarget(argument));
         return true;
       case "doctor":
-        openProjectCommands(`${selectedProfile?.codexBin || "codex"} doctor --summary --ascii`);
-        return true;
-      case "features":
-        openProjectCommands(`${selectedProfile?.codexBin || "codex"} features list`);
+        openProjectCommands(codexCommand(argument ? `doctor ${argument}` : "doctor --summary --ascii"));
         return true;
       case "mcp":
-        submitTaskOrQueue("Покажи доступные MCP серверы и инструменты для этой сессии. Если чего-то не хватает, предложи настройку.");
+        openProjectCommands(codexCommand(argument ? `mcp ${argument}` : "mcp list"));
         return true;
       case "plugins":
-        submitTaskOrQueue("Покажи установленные плагины Codex и что из них полезно для текущего проекта.");
+      case "plugin":
+        openProjectCommands(codexCommand(argument ? `plugin ${argument}` : "plugin list"));
         return true;
       case "skills":
         submitTaskOrQueue("Покажи релевантные skills Codex для текущей задачи и как их лучше использовать.");
+        return true;
+      case "cloud":
+        openProjectCommands(codexCommand(argument ? `cloud ${argument}` : "cloud"));
+        return true;
+      case "apply":
+        openProjectCommands(codexCommand(argument ? `apply ${argument}` : "apply TASK_ID"));
+        return true;
+      case "features":
+        openProjectCommands(codexCommand(argument ? `features ${argument}` : "features list"));
         return true;
       case "goal":
         submitTaskOrQueue(argument ? `/goal ${argument}` : "Покажи текущую цель задачи и прогресс.");
@@ -2186,19 +2469,22 @@ export default function App() {
   function submit(event: FormEvent) {
     event.preventDefault();
     const text = input.trim();
-    if (!text || connection !== "connected") return;
+    const outgoingAttachments = attachments;
+    const inputItems = attachmentsToInput(text, outgoingAttachments);
+    if (inputItems.length === 0 || connection !== "connected") return;
 
     setInput("");
+    setAttachments([]);
     if (handleSlashInput(text)) {
       return;
     }
 
     if (isBusy) {
-      enqueueTask(text);
+      enqueueTask(text, inputItems, outgoingAttachments);
       return;
     }
 
-    startTask(text);
+    startTask(text, inputItems, outgoingAttachments);
   }
 
   function openProfile(profile?: CodexProfile, template?: CodexProfile) {
@@ -2283,7 +2569,7 @@ export default function App() {
 
   function refreshThreads(nextSearch = search) {
     setSearch(nextSearch);
-    send({ type: "listThreads", searchTerm: nextSearch });
+    send({ type: "listThreads", searchTerm: nextSearch, archived: showArchivedThreads });
   }
 
   const quickCommands = useMemo(() => defaultQuickCommands(selectedProfile), [selectedProfile]);
@@ -2300,11 +2586,13 @@ export default function App() {
       { command: "/commands", label: "Команды проекта" },
       { command: "/doctor", label: "Диагностика Codex" },
       { command: "/features", label: "Флаги Codex" },
+      { command: "/mcp", label: "MCP серверы" },
+      { command: "/plugins", label: "Плагины" },
+      { command: "/cloud", label: "Codex Cloud" },
+      { command: "/apply", label: "Применить patch" },
       { command: "/mention", label: "Упомянуть файл" },
       { command: "/model", label: "Модель и рассуждение" },
       { command: "/permissions", label: "Доступ и подтверждения" },
-      { command: "/mcp", label: "MCP" },
-      { command: "/plugins", label: "Плагины" },
       { command: "/skills", label: "Skills" },
       { command: "/journal", label: "Журнал событий" }
     ],
@@ -2316,7 +2604,7 @@ export default function App() {
         .filter((item) => `${item.command} ${item.label}`.toLowerCase().includes(slashQuery))
         .slice(0, 8)
     : [];
-  const canSend = connection === "connected" && input.trim().length > 0;
+  const canSend = connection === "connected" && (input.trim().length > 0 || attachments.length > 0);
   const sendButtonLabel = isBusy ? "В очередь" : "Отправить";
   const isCliWorking = cliPhase === "checking" || cliPhase === "updating";
   const isCodexMissing = Boolean(selectedCliStatus?.missing);
@@ -2344,7 +2632,7 @@ export default function App() {
     .join(" ");
   const portalClassName = rootClassName.replace("app-shell", "app-portal");
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "0.1.0";
+  const appVersion = "1.1.0";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -2418,6 +2706,46 @@ export default function App() {
         icon: <SlidersHorizontal size={15} />,
         disabled: !selectedProfileId,
         run: () => openProjectCommands(`${selectedProfile?.codexBin || "codex"} features list`)
+      },
+      {
+        id: "review",
+        label: "Review изменений",
+        detail: "нативный codex review текущего дерева",
+        icon: <ShieldAlert size={15} />,
+        disabled: connection !== "connected",
+        run: () => startNativeReview({ type: "uncommittedChanges" })
+      },
+      {
+        id: "mcp",
+        label: "MCP серверы",
+        detail: "codex mcp list",
+        icon: <Server size={15} />,
+        disabled: !selectedProfileId,
+        run: () => openProjectCommands(codexCommand("mcp list"))
+      },
+      {
+        id: "plugins",
+        label: "Плагины Codex",
+        detail: "codex plugin list",
+        icon: <Upload size={15} />,
+        disabled: !selectedProfileId,
+        run: () => openProjectCommands(codexCommand("plugin list"))
+      },
+      {
+        id: "cloud",
+        label: "Codex Cloud",
+        detail: "codex cloud",
+        icon: <Monitor size={15} />,
+        disabled: !selectedProfileId,
+        run: () => openProjectCommands(codexCommand("cloud"))
+      },
+      {
+        id: "apply",
+        label: "Применить patch",
+        detail: "codex apply TASK_ID",
+        icon: <FileText size={15} />,
+        disabled: !selectedProfileId,
+        run: () => openProjectCommands(codexCommand("apply TASK_ID"))
       },
       {
         id: "journal",
@@ -2601,9 +2929,18 @@ export default function App() {
         <div className="session-head">
           <div>
             <History size={15} />
-            <span>Чаты</span>
+            <span>{showArchivedThreads ? "Архив" : "Чаты"}</span>
             <small>{visibleThreads.length}</small>
           </div>
+          <button
+            type="button"
+            className={`archive-toggle ${showArchivedThreads ? "active" : ""}`}
+            onClick={() => setShowArchivedThreads((current) => !current)}
+            title={showArchivedThreads ? "Показать обычные чаты" : "Показать архив"}
+            aria-pressed={showArchivedThreads}
+          >
+            <Archive size={14} />
+          </button>
           <button className="new-dialog-button" onClick={newThread} disabled={connection !== "connected"}>
             <Plus size={14} />
             Новый диалог
@@ -2630,7 +2967,7 @@ export default function App() {
           )}
           {recentThreads.map(renderThreadRow)}
           {connection === "connected" && visibleThreads.length === 0 && (
-            <div className="empty-note">В этой папке пока нет чатов.</div>
+            <div className="empty-note">{showArchivedThreads ? "В архиве пусто." : "В этой папке пока нет чатов."}</div>
           )}
         </div>
       </aside>
@@ -2914,7 +3251,26 @@ export default function App() {
         )}
 
         <form className="composer" onSubmit={submit}>
-          <div className="composer-box">
+          <div
+            className="composer-box"
+            onDragOver={(event) => {
+              event.preventDefault();
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              void addFiles(event.dataTransfer.files);
+            }}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden-file-input"
+              onChange={(event) => {
+                if (event.target.files) void addFiles(event.target.files);
+                event.currentTarget.value = "";
+              }}
+            />
             {visibleSlashCommands.length > 0 && (
               <div className="composer-suggest slash-suggest">
                 {visibleSlashCommands.map((item) => (
@@ -2952,12 +3308,42 @@ export default function App() {
               </div>
             )}
 
+            {attachments.length > 0 && (
+              <div className="attachment-strip">
+                {attachments.map((attachment) => (
+                  <button
+                    key={attachment.id}
+                    type="button"
+                    className={`attachment-chip ${attachment.kind}`}
+                    onClick={() => removeAttachment(attachment.id)}
+                    title="Убрать вложение"
+                  >
+                    {attachment.kind === "image" && attachment.url ? (
+                      <img src={attachment.url} alt="" />
+                    ) : attachment.kind === "mention" ? (
+                      <FileText size={14} />
+                    ) : (
+                      <Paperclip size={14} />
+                    )}
+                    <span>{attachment.name}</span>
+                    <X size={12} />
+                  </button>
+                ))}
+              </div>
+            )}
+
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
               placeholder={connection === "connected" ? "Напишите задачу Codex..." : "Сначала подключитесь к проекту"}
               disabled={connection !== "connected"}
               rows={1}
+              onPaste={(event) => {
+                if (event.clipboardData.files.length > 0) {
+                  event.preventDefault();
+                  void addFiles(event.clipboardData.files);
+                }
+              }}
               onKeyDown={(event) => {
                 if (preferences.enterToSend && event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
@@ -2967,6 +3353,15 @@ export default function App() {
             />
 
             <div className="composer-controls" onClick={(event) => event.stopPropagation()}>
+              <button
+                type="button"
+                className="composer-icon-button"
+                disabled={connection !== "connected"}
+                onClick={() => fileInputRef.current?.click()}
+                title="Прикрепить файл или изображение"
+              >
+                <Paperclip size={15} />
+              </button>
               <div className="composer-toggles">
                 <div className="composer-menu-anchor">
                   <button
@@ -3484,6 +3879,49 @@ export default function App() {
         </div>
       )}
 
+      {approvalRequest && renderLayer(
+        <div className="modal-backdrop approval-backdrop" role="presentation">
+          <section className="profile-modal approval-modal">
+            <div className="modal-head">
+              <div>
+                <h2>{approvalTitle(approvalRequest.method)}</h2>
+                <p>{selectedProfile?.projectPath || "Текущая задача"}</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => respondApproval("decline")}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="approval-body">
+              <ShieldAlert size={18} />
+              <pre>{approvalBody(approvalRequest)}</pre>
+            </div>
+            {approvalRequest.params?.cwd && (
+              <div className="approval-meta">
+                <span>cwd</span>
+                <code>{approvalRequest.params.cwd}</code>
+              </div>
+            )}
+            <div className="modal-actions">
+              <button type="button" className="secondary-button" onClick={() => respondApproval("decline")}>
+                Отклонить
+              </button>
+              <button type="button" className="secondary-button" onClick={() => respondApproval("cancel")}>
+                Остановить задачу
+              </button>
+              {!approvalRequest.method.includes("permissions") && (
+                <button type="button" className="secondary-button" onClick={() => respondApproval("acceptForSession")}>
+                  Разрешить на сессию
+                </button>
+              )}
+              <button type="button" className="primary-button" onClick={() => respondApproval("accept")}>
+                <Check size={15} />
+                Разрешить
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {diffPanel.open && renderLayer(
         <div className="modal-backdrop panel-backdrop" role="presentation">
           <section className="profile-modal wide-panel">
@@ -3510,8 +3948,24 @@ export default function App() {
                   <pre>{diffPanel.result?.status || "Изменений нет."}</pre>
                 </section>
                 <section>
-                  <h3>Diff</h3>
-                  <pre>{diffPanel.result?.diff || "Diff пустой."}</pre>
+                  <div className="diff-head">
+                    <h3>Diff</h3>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={!diffPanel.result?.diff}
+                      onClick={() => void navigator.clipboard?.writeText(diffPanel.result?.diff || "")}
+                    >
+                      Копировать patch
+                    </button>
+                  </div>
+                  <div className="diff-lines">
+                    {(diffPanel.result?.diff || "Diff пустой.").split("\n").map((line, index) => (
+                      <code key={`${index}-${line.slice(0, 18)}`} className={diffLineClass(line)}>
+                        {line || " "}
+                      </code>
+                    ))}
+                  </div>
                 </section>
               </div>
             )}
@@ -3746,19 +4200,34 @@ export default function App() {
             <Pencil size={15} />
             Переименовать
           </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              const targetThread = threadMenu.thread;
-              setThreadMenu(null);
-              send({ type: "archiveThread", threadId: targetThread.id });
-              setThreads((current) => current.filter((thread) => thread.id !== targetThread.id));
-            }}
-          >
-            <Folder size={15} />
-            Архивировать
-          </button>
+          {showArchivedThreads ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                const targetThread = threadMenu.thread;
+                setThreadMenu(null);
+                unarchiveThread(targetThread);
+              }}
+            >
+              <Archive size={15} />
+              Восстановить
+            </button>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                const targetThread = threadMenu.thread;
+                setThreadMenu(null);
+                send({ type: "archiveThread", threadId: targetThread.id });
+                setThreads((current) => current.filter((thread) => thread.id !== targetThread.id));
+              }}
+            >
+              <Archive size={15} />
+              Архивировать
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -3782,7 +4251,7 @@ export default function App() {
                 <h2>Настройки</h2>
                 <p>Поведение приложения и Codex</p>
               </div>
-              <button type="button" className="icon-button" onClick={closeSettings}>
+              <button type="button" className="icon-button" onClick={closeSettings} title="Закрыть настройки" aria-label="Закрыть настройки">
                 <X size={16} />
               </button>
             </div>

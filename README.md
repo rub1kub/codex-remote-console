@@ -25,6 +25,10 @@ Minimal desktop app for working with Codex CLI sessions on remote servers withou
 - Shows changed files in final messages.
 - Provides a compact command palette with `Cmd/Ctrl+K`.
 - Provides slash commands such as `/diff`, `/status`, `/commands`, `/review`, `/compact`, `/doctor`, `/features`, `/mcp`, `/plugins`, and `@file` mentions.
+- Supports file/image attachments from paste, drag-and-drop, or file picker. Images are sent as native Codex image input; selected project files are sent as native mentions.
+- Shows app-server approval requests for commands, file changes, permissions, and MCP elicitations instead of leaving the task stuck.
+- Uses native `review/start` for `/review` and the command palette review action.
+- Lets you browse archived sessions and unarchive chats from the context menu.
 - Checks whether Codex CLI is installed, shows the installed/latest version when available, and can install or update it from Settings.
 - Uses a temporary SSH password only for the current connection; it is not stored.
 - Runs with the default project profile close to `codex --yolo`: `approvalPolicy=never`, `sandbox=danger-full-access`.
@@ -154,15 +158,17 @@ Implemented in the GUI:
 - `resume`, `fork`, `archive`, `delete`: available through chat history and the chat context menu.
 - `model`, reasoning, speed, approvals, sandbox: available in the composer/project settings.
 - `doctor` and `features list`: available through `/doctor`, `/features`, and `Cmd/Ctrl+K`.
-- `review`: available through `/review`.
+- `review`: available through native `review/start` from `/review` and the command palette.
 - project commands: available through `/commands` and the project command runner.
 - diff/project status: available through `/diff` and `/status`.
+- `mcp`, `plugin`, `cloud`, `apply`: available through command runner shortcuts and slash commands.
+- image input: available through paste, drag-and-drop, and file picker.
+- approvals: command, file-change, permission, and MCP approval requests are shown in-app.
 
 Still intentionally not mirrored as separate polished screens:
 
-- MCP/plugin marketplace management. The app can ask Codex about MCP/plugins from chat, but full install/login/remove flows are still CLI-level operations.
-- `cloud` and `apply` workflows. They need dedicated UX around remote tasks and patch application before becoming one-click actions.
-- Image attachments. Text chat and file mentions are supported; image upload needs a separate attachment flow.
+- MCP/plugin marketplace management, `cloud`, and `apply` are intentionally exposed through the command runner first. Full guided wizards can be added later without changing the app-server bridge.
+- Signed auto-update for the app itself is not included in the unsigned local release build.
 
 ## Checks
 
