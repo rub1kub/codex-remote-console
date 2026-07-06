@@ -256,7 +256,8 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
   }
 
   async readThread(threadId: string) {
-    this.activeThreadId = threadId;
+    // Reading history does not attach the app-server turn state.
+    // Old threads must be resumed before sending a new turn.
     return this.request("thread/read", { threadId, includeTurns: true });
   }
 
