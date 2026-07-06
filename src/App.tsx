@@ -71,6 +71,11 @@ type CommandAction = {
   disabled?: boolean;
   run: () => void;
 };
+type TaskTokenStats = {
+  input?: number;
+  output?: number;
+  total?: number;
+};
 
 const uiStateStorageKey = "codex-remote-ui-state";
 
@@ -89,6 +94,8 @@ const defaultPreferences: AppPreferences = {
   enterToSend: true,
   notifyOnCompletion: true,
   showDiagnostics: false,
+  showTaskTimer: true,
+  showTokenUsage: true,
   historyLimit: 80,
   defaultUpdateCommand
 };
@@ -132,6 +139,11 @@ const speedOptions: Array<{
   { value: "fast", label: "Быстро", description: "Быстрее, расход выше" }
 ];
 
+const compactNumber = new Intl.NumberFormat("ru", {
+  maximumFractionDigits: 1,
+  notation: "compact"
+});
+
 function readStoredUiState(): StoredUiState {
   if (typeof window === "undefined") return {};
   try {
@@ -158,6 +170,83 @@ const formatDate = (seconds: number) =>
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(seconds * 1000));
+
+function formatDuration(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    const restMinutes = minutes % 60;
+    return `${hours}ч ${String(restMinutes).padStart(2, "0")}м`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatTokens(stats: TaskTokenStats | null) {
+  if (!stats) return "токены: --";
+  const total = stats.total ?? ((stats.input ?? 0) + (stats.output ?? 0));
+  if (!total) return "токены: --";
+  return `токены: ${compactNumber.format(total)}`;
+}
+
+function mergeTokenStats(
+  current: TaskTokenStats | null,
+  next: TaskTokenStats | null
+): TaskTokenStats | null {
+  if (!next) return current;
+  return {
+    input: next.input ?? current?.input,
+    output: next.output ?? current?.output,
+    total: next.total ?? current?.total
+  };
+}
+
+function numberFromUnknown(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function extractTokenStats(value: unknown, depth = 0): TaskTokenStats | null {
+  if (!value || typeof value !== "object" || depth > 5) return null;
+  const record = value as Record<string, unknown>;
+  const direct: TaskTokenStats = {
+    input:
+      numberFromUnknown(record.input_tokens) ??
+      numberFromUnknown(record.inputTokens) ??
+      numberFromUnknown(record.prompt_tokens) ??
+      numberFromUnknown(record.promptTokens),
+    output:
+      numberFromUnknown(record.output_tokens) ??
+      numberFromUnknown(record.outputTokens) ??
+      numberFromUnknown(record.completion_tokens) ??
+      numberFromUnknown(record.completionTokens),
+    total:
+      numberFromUnknown(record.total_tokens) ??
+      numberFromUnknown(record.totalTokens) ??
+      numberFromUnknown(record.tokens)
+  };
+
+  if (direct.input || direct.output || direct.total) {
+    return direct;
+  }
+
+  for (const child of Object.values(record)) {
+    const nested = extractTokenStats(child, depth + 1);
+    if (nested) return nested;
+  }
+
+  return null;
+}
+
+function activityLabelForMessage(message?: ChatMessage) {
+  if (!message) return "Готовлю задачу";
+  if (message.role === "tool") {
+    return message.title?.startsWith("Изменения") ? "Обновляю файлы" : "Выполняю команду";
+  }
+  if (message.title === "План") return "Планирую шаги";
+  if (message.role === "assistant") return "Пишу ответ";
+  return "Работаю";
+}
 
 const titleOf = (thread?: CodexThread | null) =>
   thread?.name || thread?.preview || "Новый чат";
@@ -351,6 +440,9 @@ function buildStepGroupId(messages: ChatMessage[]) {
 
 function collapseAssistantSegment(segment: ChatMessage[]): MessageDisplayItem[] {
   if (segment.length <= 1) {
+    if (segment[0]?.role === "tool") {
+      return [{ type: "steps", id: buildStepGroupId(segment), messages: segment }];
+    }
     return segment.map((message): MessageDisplayItem => ({ type: "message", message }));
   }
 
@@ -360,6 +452,10 @@ function collapseAssistantSegment(segment: ChatMessage[]): MessageDisplayItem[] 
       finalAssistantIndex = index;
       break;
     }
+  }
+
+  if (finalAssistantIndex === -1) {
+    return [{ type: "steps", id: buildStepGroupId(segment), messages: segment }];
   }
 
   if (finalAssistantIndex <= 0) {
@@ -502,6 +598,11 @@ export default function App() {
   const [error, setError] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const [isBusy, setBusy] = useState(false);
+  const [taskStartedAt, setTaskStartedAt] = useState<number | null>(null);
+  const [taskCompletedAt, setTaskCompletedAt] = useState<number | null>(null);
+  const [taskNow, setTaskNow] = useState(Date.now());
+  const [taskActivity, setTaskActivity] = useState("Готовлю задачу");
+  const [taskTokens, setTaskTokens] = useState<TaskTokenStats | null>(null);
   const [loadingThreadId, setLoadingThreadId] = useState("");
   const [openStepGroups, setOpenStepGroups] = useState<Record<string, boolean>>({});
   const [threadMenu, setThreadMenu] = useState<{
@@ -592,6 +693,14 @@ export default function App() {
   const selectedSpeedLabel =
     speedOptions.find((option) => option.value === preferences.responseSpeed)?.label ||
     "скорость";
+  const showFinishedTaskStatus =
+    Boolean(taskCompletedAt) && taskNow - (taskCompletedAt ?? 0) < 12_000;
+  const showTaskStatus = isBusy || showFinishedTaskStatus;
+  const taskElapsedMs = taskStartedAt
+    ? (taskCompletedAt && !isBusy ? taskCompletedAt : taskNow) - taskStartedAt
+    : 0;
+  const taskStatusLabel = isBusy ? taskActivity : "Готово";
+  const taskTokenLabel = formatTokens(taskTokens);
 
   useEffect(() => {
     void loadProfiles();
@@ -606,6 +715,18 @@ export default function App() {
   useEffect(() => {
     settingsVisibleRef.current = isSettingsOpen;
   }, [isSettingsOpen]);
+
+  useEffect(() => {
+    if (!isBusy && !taskCompletedAt) return;
+    const interval = window.setInterval(() => {
+      const now = Date.now();
+      setTaskNow(now);
+      if (!isBusy && taskCompletedAt && now - taskCompletedAt >= 12_000) {
+        setTaskCompletedAt(null);
+      }
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [isBusy, taskCompletedAt]);
 
   useEffect(() => {
     return () => {
@@ -974,14 +1095,23 @@ export default function App() {
 
     if (method === "turn/started") {
       setBusy(true);
+      setTaskStartedAt((current) => current ?? Date.now());
+      setTaskCompletedAt(null);
+      setTaskActivity("Начинаю задачу");
+      setTaskTokens((current) => mergeTokenStats(current, extractTokenStats(params)));
     }
 
     if (method === "item/started" && params.item) {
       const next = itemToMessage(params.item);
-      if (next) setMessages((current) => upsertMessage(current, next));
+      if (next) {
+        setTaskActivity(activityLabelForMessage(next));
+        setMessages((current) => upsertMessage(current, next));
+      }
+      setTaskTokens((current) => mergeTokenStats(current, extractTokenStats(params)));
     }
 
     if (method === "item/agentMessage/delta") {
+      setTaskActivity("Пишу ответ");
       setMessages((current) =>
         upsertMessage(
           current,
@@ -992,6 +1122,7 @@ export default function App() {
     }
 
     if (method === "item/plan/delta") {
+      setTaskActivity("Планирую шаги");
       setMessages((current) =>
         upsertMessage(
           current,
@@ -1002,6 +1133,7 @@ export default function App() {
     }
 
     if (method === "item/commandExecution/outputDelta") {
+      setTaskActivity("Выполняю команду");
       setMessages((current) =>
         upsertMessage(
           current,
@@ -1013,11 +1145,18 @@ export default function App() {
 
     if (method === "item/completed" && params.item) {
       const next = itemToMessage(params.item);
-      if (next) setMessages((current) => upsertMessage(current, next));
+      if (next) {
+        setTaskActivity(activityLabelForMessage(next));
+        setMessages((current) => upsertMessage(current, next));
+      }
+      setTaskTokens((current) => mergeTokenStats(current, extractTokenStats(params)));
     }
 
     if (method === "turn/completed") {
       setBusy(false);
+      setTaskCompletedAt(Date.now());
+      setTaskActivity("Готово");
+      setTaskTokens((current) => mergeTokenStats(current, extractTokenStats(params)));
       notifyCompletion();
       if (preferencesRef.current.autoRefreshHistory) {
         send({ type: "listThreads", searchTerm: searchRef.current });
@@ -1160,6 +1299,7 @@ export default function App() {
     setMessages([]);
     setLoadingThreadId(thread.id);
     setOpenStepGroups({});
+    setTaskCompletedAt(null);
     send({ type: "readThread", threadId: thread.id });
   }
 
@@ -1168,6 +1308,7 @@ export default function App() {
     setMessages([]);
     setLoadingThreadId("");
     setOpenStepGroups({});
+    setTaskCompletedAt(null);
     send({ type: "newThread" });
   }
 
@@ -1306,6 +1447,11 @@ export default function App() {
 
     setError("");
     setInput("");
+    setBusy(true);
+    setTaskStartedAt(Date.now());
+    setTaskCompletedAt(null);
+    setTaskActivity("Отправляю задачу");
+    setTaskTokens(null);
     setMessages((current) => [
       ...current,
       { id: `local-${Date.now()}`, role: "user", text }
@@ -1802,6 +1948,24 @@ export default function App() {
           )}
           {!loadingThreadId && messages.length > 0 && <div ref={endRef} />}
         </div>
+
+        {showTaskStatus && (
+          <div className={`task-status ${isBusy ? "working" : "done"}`}>
+            <div className="task-status-main">
+              {isBusy ? <Loader2 size={15} className="spin" /> : <Check size={15} />}
+              <span>{isBusy ? "Codex работает" : "Codex закончил"}</span>
+              <small>{taskStatusLabel}</small>
+            </div>
+            <div className="task-status-metrics">
+              {preferences.showTaskTimer && (
+                <span>{formatDuration(taskElapsedMs)}</span>
+              )}
+              {preferences.showTokenUsage && (
+                <span>{taskTokenLabel}</span>
+              )}
+            </div>
+          </div>
+        )}
 
         <form className="composer" onSubmit={submit}>
           <div className="composer-box">
@@ -2609,6 +2773,22 @@ export default function App() {
                   type="checkbox"
                   checked={preferences.notifyOnCompletion}
                   onChange={(event) => void updatePreferences({ notifyOnCompletion: event.target.checked })}
+                />
+              </label>
+              <label className="toggle-row">
+                <span>Показывать время задачи</span>
+                <input
+                  type="checkbox"
+                  checked={preferences.showTaskTimer}
+                  onChange={(event) => void updatePreferences({ showTaskTimer: event.target.checked })}
+                />
+              </label>
+              <label className="toggle-row">
+                <span>Показывать токены задачи</span>
+                <input
+                  type="checkbox"
+                  checked={preferences.showTokenUsage}
+                  onChange={(event) => void updatePreferences({ showTokenUsage: event.target.checked })}
                 />
               </label>
               <label className="toggle-row">

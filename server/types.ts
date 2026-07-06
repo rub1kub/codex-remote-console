@@ -87,6 +87,8 @@ export type AppPreferences = {
   enterToSend: boolean;
   notifyOnCompletion: boolean;
   showDiagnostics: boolean;
+  showTaskTimer: boolean;
+  showTokenUsage: boolean;
   historyLimit: number;
   defaultUpdateCommand: string;
 };

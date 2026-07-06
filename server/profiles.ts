@@ -34,6 +34,8 @@ const defaultPreferences: AppPreferences = {
   enterToSend: true,
   notifyOnCompletion: true,
   showDiagnostics: false,
+  showTaskTimer: true,
+  showTokenUsage: true,
   historyLimit: 80,
   defaultUpdateCommand
 };
@@ -145,6 +147,14 @@ function normalizePreferences(input?: Partial<AppPreferences>): AppPreferences {
       typeof input?.showDiagnostics === "boolean"
         ? input.showDiagnostics
         : defaultPreferences.showDiagnostics,
+    showTaskTimer:
+      typeof input?.showTaskTimer === "boolean"
+        ? input.showTaskTimer
+        : defaultPreferences.showTaskTimer,
+    showTokenUsage:
+      typeof input?.showTokenUsage === "boolean"
+        ? input.showTokenUsage
+        : defaultPreferences.showTokenUsage,
     historyLimit:
       Number.isInteger(historyLimit) && historyLimit >= 10 && historyLimit <= 300
         ? historyLimit
