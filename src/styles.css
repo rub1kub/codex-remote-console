@@ -2111,6 +2111,25 @@ textarea:focus {
   width: 100%;
 }
 
+.cli-install-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #f0d6a9;
+  border-radius: 8px;
+  background: #fff8eb;
+  color: #735221;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.cli-install-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
 .monitor-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2726,6 +2745,12 @@ textarea:focus {
 .theme-dark .about-links a:hover {
   border-color: #2f6c5f;
   background: #18362e;
+}
+
+.theme-dark .cli-install-note {
+  border-color: #584222;
+  background: #241d12;
+  color: #f3c980;
 }
 
 .theme-dark .primary-button,

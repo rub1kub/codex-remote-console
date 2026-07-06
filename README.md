@@ -1,62 +1,57 @@
 # Codex Remote
 
-Минималистичное приложение в стиле Codex app для работы с Codex на сервере без ручного `ssh`, `cd` и `codex --yolo`.
+[Русская версия](README.ru.md)
 
-## Что умеет
+Minimal desktop app for working with Codex CLI sessions on remote servers without manually running `ssh`, `cd`, and `codex --yolo` in a terminal.
 
-- сохраняет проекты: один сервер может иметь несколько рабочих папок;
-- показывает папки сервера прямо в приложении, чтобы выбрать место работы без ручного ввода пути;
-- сама запускает на целевой машине `codex app-server --listen stdio://`;
-- работает на macOS, Windows и Linux;
-- группирует проекты по серверам и показывает чаты выбранной папки;
-- показывает историю `thread/list` из удаленного `$CODEX_HOME`;
-- открывает прошлые чаты;
-- продолжает выбранный чат;
-- создает новый диалог в выбранном проекте;
-- восстанавливает последний выбранный проект, чат и поиск после перезапуска;
-- закрепляет важные чаты локально в интерфейсе;
-- сворачивает промежуточный ход работы в один блок и оставляет итоговый ответ рядом;
-- показывает отдельный блок затронутых файлов в итогах;
-- открывает команды приложения через `Cmd/Ctrl+K`;
-- показывает базовый монитор подключения, чатов, Codex CLI и app-server в настройках;
-- умеет уведомлять о завершении ответа;
-- показывает ответы, команды и изменения файлов в реальном времени;
-- использует одноразовый пароль SSH без сохранения;
-- проверяет установленную/последнюю версию `codex-cli` и запускает обновление кнопкой;
-- имеет настройки темы, анимаций, истории, журнала и ввода;
-- по умолчанию повторяет привычный `codex --yolo`: `approvalPolicy=never`, `sandbox=danger-full-access`.
+## Features
 
-## Запуск
+- Saves projects as `server + project folder`, so one server can host multiple workspaces.
+- Lets you browse server directories in the GUI and pick the project folder visually.
+- Connects to a project by clicking it in the sidebar.
+- Starts `codex app-server --listen stdio://` on the target machine.
+- Shows Codex history from the remote `$CODEX_HOME`.
+- Opens previous chats, resumes them, and starts new dialogs in the selected project.
+- Pins chats locally, renames them, and hides them with confirmation.
+- Collapses intermediate work into one "work progress" block and keeps the final answer readable.
+- Shows changed files in final messages.
+- Provides a compact command palette with `Cmd/Ctrl+K`.
+- Checks whether Codex CLI is installed, shows the installed/latest version when available, and can install or update it from Settings.
+- Uses a temporary SSH password only for the current connection; it is not stored.
+- Runs with the default project profile close to `codex --yolo`: `approvalPolicy=never`, `sandbox=danger-full-access`.
+- Ships as an Electron app for macOS, Windows, and Linux.
 
-Разработка приложения:
+## Running Locally
+
+Install dependencies and start the Electron app:
 
 ```bash
 npm install
 npm run electron:dev
 ```
 
-Разработка через браузер:
+Run only the web UI and local server:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Открой:
+Open:
 
 ```text
 http://127.0.0.1:5173
 ```
 
-## Сборка приложений
+## Building
 
-Текущая платформа:
+Build for the current platform:
 
 ```bash
 npm run dist
 ```
 
-Отдельные targets:
+Build specific targets:
 
 ```bash
 npm run dist:mac
@@ -64,67 +59,86 @@ npm run dist:win
 npm run dist:linux
 ```
 
-Артефакты появляются в `release/`. Для сборки Windows/Linux на macOS могут понадобиться дополнительные инструменты.
+Artifacts are written to `release/`. Cross-building Windows or Linux artifacts from macOS may require additional system tooling.
 
-## Требования к серверу
+## Server Requirements
 
-1. SSH с локальной машины должен работать через `~/.ssh/config`, agent, ключ или одноразовый пароль в приложении.
-2. На сервере должен быть установлен и авторизован `codex`.
-3. Команда `codex` должна быть доступна в login shell. Приложение запускает ее так:
+1. SSH from the local machine to the target server must work through `~/.ssh/config`, SSH agent, an identity file, or a one-time password entered in the app.
+2. The project folder must exist and be readable by the SSH user.
+3. Codex CLI must be available in the remote login shell as `codex` or through the custom command configured in the project.
+4. Codex must already be authenticated on that server.
+
+The app starts the remote app-server roughly like this:
 
 ```bash
 ssh -T devbox "bash -lc 'cd ~/app && codex app-server --listen stdio://'"
 ```
 
-Пароли, OpenAI токены и ChatGPT cookies приложение не хранит. Пароль SSH используется только на время текущего подключения.
+Passwords, OpenAI tokens, and ChatGPT cookies are not stored by Codex Remote.
 
-## Архитектура
+## If Codex CLI Is Not Installed
+
+Codex Remote handles this as a first-class state:
+
+1. Open the project or Settings.
+2. Click `Check` in `Settings -> Codex`.
+3. If `codex` is missing, the status becomes `not installed`.
+4. Click `Install`.
+5. Reconnect to the project after installation finishes.
+
+The default install/update command follows the current Codex CLI setup path for macOS/Linux and keeps the old npm package as a fallback:
+
+```bash
+(set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh) || npm install -g @openai/codex@latest
+```
+
+You can override this command globally in `Settings -> Codex` or per project in the advanced project settings.
+
+Official setup reference: [OpenAI Codex CLI](https://developers.openai.com/codex/cli).
+
+## Architecture
 
 ```mermaid
 flowchart LR
-  Electron["Приложение"] --> UI["Интерфейс"]
-  UI -->|WebSocket /ws| Node["Локальный сервер"]
-  UI -->|REST /api/profiles| Profiles["Настройки"]
-  Node -->|ssh -T или ssh2 exec| Remote["Сервер"]
+  Electron["Electron app"] --> UI["React UI"]
+  UI -->|WebSocket /ws| Node["Local Node server"]
+  UI -->|REST /api/profiles| Profiles["Local settings"]
+  Node -->|ssh -T or ssh2 exec| Remote["Remote server"]
   Remote -->|stdio JSONL| AppServer["codex app-server"]
-  AppServer --> Sessions["Чаты Codex"]
+  AppServer --> Sessions["Codex chats"]
 ```
 
-Основной принцип: приложение не оборачивает терминал, а говорит с `codex app-server`. Поэтому история и события чата идут тем же путем, которым пользуются полноценные клиенты Codex.
+The app is not a terminal wrapper. It talks to `codex app-server`, so chat history and live events come through the same app-server interface used by full Codex clients.
 
-## Проекты
+## Projects
 
-Минимальный проект:
+A minimal project includes:
 
-- сервер: `devbox` или `ubuntu@1.2.3.4`
-- папка проекта: выбирается в приложении, например `/var/www/site.com`
-- команда Codex: `codex`
-- пароль: опционально, не сохраняется
-- команда обновления Codex: опционально, для конкретного сервера
+- server: `devbox` or `ubuntu@1.2.3.4`
+- project folder: selected in the app, for example `/var/www/site.com`
+- Codex command: `codex`
+- SSH password: optional and never saved
+- install/update command: optional per-server override
 
-Один и тот же сервер можно использовать для нескольких папок, например `/var/www/zavozik.xyz` и `/var/www/hytalemonitoring.com`. В боковой панели они будут сгруппированы под одним сервером.
+The same server can contain several projects, for example `/var/www/zavozik.xyz` and `/var/www/hytalemonitoring.com`. They are grouped under the same server in the sidebar.
 
-Проекты, настройки и локальные закрепления чатов лежат в:
+Profiles, preferences, and local chat pins are stored in:
 
 ```text
 ~/.codex-remote-console/profiles.json
 ```
 
-Команда обновления по умолчанию:
+## Appearance
 
-```bash
-CODEX_NON_INTERACTIVE=1 codex update || npm install -g @openai/codex@latest
-```
+`Settings -> Appearance` has three interface styles:
 
-## Внешний вид
+- `Default`: closest to the calm Codex app layout.
+- `Chats`: gives more weight to history and resumed sessions.
+- `Terminal`: darker sidebar and a more engineering-oriented rhythm.
 
-В `Настройки -> Внешний вид` доступны три режима интерфейса:
+Light, dark, and system themes are supported.
 
-- `Обычный`: максимально близко к спокойному Codex app.
-- `Чаты`: больше веса у истории и продолжения прошлых чатов.
-- `Терминал`: темная боковая панель и более инженерный рабочий ритм.
-
-## Проверки
+## Checks
 
 ```bash
 npm run typecheck
@@ -132,15 +146,15 @@ npm run build
 npm run electron:dev
 ```
 
-## Горячие действия
+## Shortcuts and Actions
 
-- `Cmd/Ctrl+K` открывает палитру команд: новый диалог, настройки, добавление проекта, обновление чатов, переподключение, проверка Codex CLI и отключение.
-- Правый клик по чату открывает меню: закрепить, переименовать, удалить с подтверждением.
-- Клик по проекту подключает его сразу, без отдельной кнопки подключения.
+- `Cmd/Ctrl+K`: command palette for a new dialog, settings, project creation, refresh, reconnect, CLI check, and disconnect.
+- Right-click a chat: pin, rename, or delete with confirmation.
+- Click a project: connect immediately.
 
-## Ограничения
+## Current Limitations
 
-- Сейчас приложение подключается к одному выбранному проекту за раз.
-- Запросы подтверждений пока без отдельного красивого окна; для режима `--yolo` это не мешает.
-- Приложение держит `stdio://` поверх SSH, чтобы не открывать удаленный порт.
-- Для постоянной работы предпочтительнее SSH-ключи или `~/.ssh/config`.
+- Only one project connection is active at a time.
+- Approval requests do not yet have a dedicated polished dialog. This does not affect the default full-access mode.
+- Remote communication uses `stdio://` over SSH, so no remote TCP port needs to be opened.
+- SSH keys or `~/.ssh/config` are recommended for regular use.

@@ -157,6 +157,7 @@ export async function startServer(
     ws.on("close", closeBridge);
 
     ws.on("message", async (raw) => {
+      let messageType = "";
       try {
         const message = JSON.parse(raw.toString("utf8")) as {
           type: string;
@@ -166,6 +167,7 @@ export async function startServer(
           text?: string;
           searchTerm?: string;
         };
+        messageType = message.type;
 
         if (message.type === "connect") {
           if (!message.profileId) throw new Error("profileId is required.");
@@ -290,6 +292,10 @@ export async function startServer(
           send(ws, { type: "interrupt", result: await bridge.interrupt() });
         }
       } catch (error) {
+        if (messageType === "connect") {
+          closeBridge();
+          send(ws, { type: "connection", status: "idle" });
+        }
         send(ws, {
           type: "error",
           message: error instanceof Error ? error.message : String(error)

@@ -16,8 +16,11 @@ type Store = {
   threadMetadata: Record<string, ThreadMetadata>;
 };
 
-const defaultUpdateCommand =
+const legacyDefaultUpdateCommand =
   "CODEX_NON_INTERACTIVE=1 codex update || npm install -g @openai/codex@latest";
+
+const defaultUpdateCommand =
+  "(set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh) || npm install -g @openai/codex@latest";
 
 const defaultPreferences: AppPreferences = {
   theme: "system",
@@ -95,6 +98,10 @@ function validateTarget(target: string) {
 function normalizePreferences(input?: Partial<AppPreferences>): AppPreferences {
   const historyLimit = Number(input?.historyLimit);
   const interfaceStyle = input?.interfaceStyle;
+  const savedUpdateCommand = cleanText(
+    input?.defaultUpdateCommand,
+    defaultPreferences.defaultUpdateCommand
+  );
   return {
     ...defaultPreferences,
     ...input,
@@ -143,8 +150,9 @@ function normalizePreferences(input?: Partial<AppPreferences>): AppPreferences {
         ? historyLimit
         : defaultPreferences.historyLimit,
     defaultUpdateCommand:
-      cleanText(input?.defaultUpdateCommand, defaultPreferences.defaultUpdateCommand) ||
-      defaultPreferences.defaultUpdateCommand
+      !savedUpdateCommand || savedUpdateCommand === legacyDefaultUpdateCommand
+        ? defaultPreferences.defaultUpdateCommand
+        : savedUpdateCommand
   };
 }
 

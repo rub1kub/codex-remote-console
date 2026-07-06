@@ -75,7 +75,7 @@ type CommandAction = {
 const uiStateStorageKey = "codex-remote-ui-state";
 
 const defaultUpdateCommand =
-  "CODEX_NON_INTERACTIVE=1 codex update || npm install -g @openai/codex@latest";
+  "(set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh) || npm install -g @openai/codex@latest";
 
 const defaultPreferences: AppPreferences = {
   theme: "system",
@@ -1400,6 +1400,15 @@ export default function App() {
 
   const canSend = connection === "connected" && input.trim().length > 0;
   const isCliWorking = cliPhase === "checking" || cliPhase === "updating";
+  const isCodexMissing = Boolean(cliStatus?.missing);
+  const cliVersionLabel = isCodexMissing
+    ? "не установлен"
+    : cliStatus?.installed || "не проверено";
+  const canInstallOrUpdateCodex =
+    Boolean(selectedProfileId) &&
+    !isCliWorking &&
+    Boolean(isCodexMissing || cliStatus?.updateAvailable);
+  const codexActionLabel = isCodexMissing ? "Установить" : "Обновить";
   const rootClassName = [
     "app-shell",
     `theme-${preferences.theme}`,
@@ -2182,7 +2191,7 @@ export default function App() {
               </div>
 
               <label>
-                Команда обновления Codex
+                Команда установки/обновления Codex
                 <input
                   value={draft.updateCommand ?? ""}
                   onChange={(event) => updateDraft({ updateCommand: event.target.value })}
@@ -2409,11 +2418,11 @@ export default function App() {
               <div className="cli-status-card">
                 <div>
                   <span>Версия</span>
-                  <strong>{cliStatus?.installed || "не проверено"}</strong>
+                  <strong>{cliVersionLabel}</strong>
                 </div>
                 <div>
                   <span>Новая версия</span>
-                  <strong>{cliStatus?.latest || "-"}</strong>
+                  <strong>{cliStatus?.latest || "неизвестно"}</strong>
                 </div>
                 <button className="secondary-button" onClick={checkCodexCli} disabled={!selectedProfileId || isCliWorking}>
                   {cliPhase === "checking" ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}
@@ -2422,14 +2431,20 @@ export default function App() {
                 <button
                   className="primary-button"
                   onClick={updateCodexCli}
-                  disabled={!selectedProfileId || isCliWorking || !cliStatus?.updateAvailable}
+                  disabled={!canInstallOrUpdateCodex}
                 >
                   {cliPhase === "updating" ? <Loader2 size={15} className="spin" /> : <Download size={15} />}
-                  Обновить
+                  {codexActionLabel}
                 </button>
               </div>
+              {cliStatus?.message && (
+                <div className="cli-install-note">
+                  <Terminal size={14} />
+                  <span>{cliStatus.message}</span>
+                </div>
+              )}
               <label>
-                Команда обновления по умолчанию
+                Команда установки/обновления по умолчанию
                 <input
                   value={preferences.defaultUpdateCommand}
                   onChange={(event) => void updatePreferences({ defaultUpdateCommand: event.target.value })}
@@ -2467,7 +2482,7 @@ export default function App() {
                 </div>
                 <div>
                   <span>Codex CLI</span>
-                  <strong>{cliStatus?.installed || "не проверено"}</strong>
+                  <strong>{cliVersionLabel}</strong>
                 </div>
                 <div>
                   <span>Приложение</span>

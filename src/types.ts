@@ -56,8 +56,11 @@ export type CodexCliStatus = {
   installed: string;
   latest: string;
   path: string;
+  missing: boolean;
   updateAvailable: boolean;
   command: string;
+  installCommand: string;
+  message?: string;
   stdout: string;
   stderr: string;
   updateExitCode?: number | null;

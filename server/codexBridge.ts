@@ -97,8 +97,39 @@ function buildTurnParams(
   };
 }
 
+function codexMissingMessage(profile: CodexProfile) {
+  const target =
+    profile.mode === "local"
+      ? "на этом компьютере"
+      : `на сервере ${profile.sshTarget}`;
+  return `Codex CLI не найден ${target}. Откройте Настройки -> Codex, нажмите "Установить" и подключитесь к проекту снова.`;
+}
+
+function isMissingCodexError(value: string) {
+  return /Codex CLI не найден|command not found|ENOENT|No such file or directory/i.test(value);
+}
+
+function bridgeCloseError(fallback: string, stderr: string, profile: CodexProfile) {
+  if (isMissingCodexError(stderr)) {
+    return new Error(codexMissingMessage(profile));
+  }
+  const details = stderr.trim();
+  return new Error(details ? `${fallback}: ${details}` : fallback);
+}
+
+function buildCodexPreflight(profile: CodexProfile) {
+  const codexBin = shellQuotePath(profile.codexBin || "codex");
+  return [
+    `if ! command -v ${codexBin} >/dev/null 2>&1; then`,
+    `printf "%s\\n" ${shellQuote(codexMissingMessage(profile))} >&2;`,
+    "exit 127;",
+    "fi"
+  ].join(" ");
+}
+
 function buildRemoteCommand(profile: CodexProfile) {
   return [
+    buildCodexPreflight(profile),
     `cd ${shellQuotePath(profile.projectPath)}`,
     `${shellQuotePath(profile.codexBin)} app-server --listen stdio://`
   ].join(" && ");
@@ -166,6 +197,7 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
   private pending = new Map<number | string, PendingRequest>();
   private activeThreadId?: string;
   private activeTurnId?: string;
+  private lastStderr = "";
 
   constructor(
     private readonly profile: CodexProfile,
@@ -300,17 +332,26 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
     rl.on("line", (line) => this.handleLine(line));
 
     this.proc.stderr.on("data", (chunk: Buffer) => {
-      this.emit("stderr", chunk.toString("utf8"));
+      const line = chunk.toString("utf8");
+      this.lastStderr += line;
+      this.emit("stderr", line);
     });
 
     this.proc.on("error", (error) => {
-      this.rejectAll(error);
-      this.emit("status", `error:${error.message}`);
+      const nextError = isMissingCodexError(error.message)
+        ? new Error(codexMissingMessage(this.profile))
+        : error;
+      this.rejectAll(nextError);
+      this.emit("status", `error:${nextError.message}`);
     });
 
     this.proc.on("close", (code, signal) => {
       this.rejectAll(
-        new Error(`codex app-server exited (${code ?? "no-code"} ${signal ?? ""})`)
+        bridgeCloseError(
+          `codex app-server exited (${code ?? "no-code"} ${signal ?? ""})`,
+          this.lastStderr,
+          this.profile
+        )
       );
       this.emit("status", "closed");
     });
@@ -376,11 +417,19 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
     rl.on("line", (line) => this.handleLine(line));
 
     channel.stderr.on("data", (chunk: Buffer) => {
-      this.emit("stderr", chunk.toString("utf8"));
+      const line = chunk.toString("utf8");
+      this.lastStderr += line;
+      this.emit("stderr", line);
     });
 
     channel.on("close", () => {
-      this.rejectAll(new Error("Remote codex app-server channel closed."));
+      this.rejectAll(
+        bridgeCloseError(
+          "Remote codex app-server channel closed",
+          this.lastStderr,
+          this.profile
+        )
+      );
       this.emit("status", "closed");
     });
   }

@@ -23,8 +23,11 @@ export type CodexCliStatus = {
   installed: string;
   latest: string;
   path: string;
+  missing: boolean;
   updateAvailable: boolean;
   command: string;
+  installCommand: string;
+  message?: string;
   stdout: string;
   stderr: string;
 };
@@ -99,6 +102,21 @@ function parseKeyValue(stdout: string) {
 
 function cleanText(value: unknown, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
+}
+
+function getCodexInstallCommand(
+  profile: CodexProfile,
+  preferences: AppPreferences
+) {
+  return profile.updateCommand || preferences.defaultUpdateCommand;
+}
+
+function codexMissingMessage(profile: CodexProfile) {
+  const target =
+    profile.mode === "local"
+      ? "на этом компьютере"
+      : `на сервере ${profile.sshTarget}`;
+  return `Codex CLI не найден ${target}. Откройте Настройки -> Codex, нажмите "Установить" и подключитесь к проекту снова.`;
 }
 
 function validateTarget(target: string) {
@@ -377,17 +395,26 @@ export async function checkCodexCli(
   ].join("; ");
 
   const result = await runProfileCommand(profile, secrets, command);
+  if (result.exitCode !== 0 && !result.stdout.includes("installed=")) {
+    throw new Error(result.stderr.trim() || "Не удалось проверить Codex CLI.");
+  }
   const parsed = parseKeyValue(result.stdout);
   const installed = parsed.installed ?? "";
   const latest = parsed.latest ?? "";
+  const cliPath = parsed.path ?? "";
+  const missing = !installed && !cliPath;
+  const installCommand = getCodexInstallCommand(profile, preferences);
 
   return {
     installed,
     latest,
-    path: parsed.path ?? "",
+    path: cliPath,
+    missing,
     updateAvailable:
       Boolean(installed && latest) && compareVersions(installed, latest) < 0,
-    command: profile.updateCommand || preferences.defaultUpdateCommand,
+    command: installCommand,
+    installCommand,
+    message: missing ? codexMissingMessage(profile) : undefined,
     stdout: result.stdout,
     stderr: result.stderr
   };
@@ -398,12 +425,19 @@ export async function updateCodexCli(
   secrets: ConnectionSecrets,
   preferences: AppPreferences
 ) {
-  const command = profile.updateCommand || preferences.defaultUpdateCommand;
+  const command = getCodexInstallCommand(profile, preferences);
   const result = await runProfileCommand(profile, secrets, command);
   const status = await checkCodexCli(profile, secrets, preferences);
+  const updateError =
+    result.exitCode !== 0
+      ? (result.stderr.trim() || result.stdout.trim())
+      : "";
 
   return {
     ...status,
+    message: updateError
+      ? `Команда установки/обновления Codex завершилась ошибкой: ${updateError}`
+      : status.message,
     updateExitCode: result.exitCode,
     updateStdout: result.stdout,
     updateStderr: result.stderr
