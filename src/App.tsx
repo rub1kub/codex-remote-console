@@ -408,7 +408,28 @@ function upsertMessage(
   append = false
 ) {
   const index = messages.findIndex((message) => message.id === next.id);
-  if (index === -1) return [...messages, next];
+  if (index === -1) {
+    if (next.role === "user") {
+      let localDuplicateIndex = -1;
+      for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+        const message = messages[messageIndex];
+        if (
+          message.role === "user" &&
+          message.id.startsWith("local-") &&
+          message.text === next.text
+        ) {
+          localDuplicateIndex = messageIndex;
+          break;
+        }
+      }
+      if (localDuplicateIndex !== -1) {
+        const copy = [...messages];
+        copy[localDuplicateIndex] = next;
+        return copy;
+      }
+    }
+    return [...messages, next];
+  }
   const copy = [...messages];
   copy[index] = append
     ? { ...copy[index], text: `${copy[index].text}${next.text}` }
