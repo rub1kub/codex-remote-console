@@ -14,7 +14,7 @@ import {
   savePreferences,
   saveProfile
 } from "./profiles";
-import { checkCodexCli, listDirectories, updateCodexCli } from "./remoteExec";
+import { checkCodexCli, listDirectories, preflightCodexCli, updateCodexCli } from "./remoteExec";
 
 type StartServerOptions = {
   host?: string;
@@ -145,7 +145,12 @@ export async function startServer(
         send(ws, { type: "log", line });
       });
       nextBridge.on("status", (status) => {
+        if (bridge !== nextBridge) return;
         send(ws, { type: "codexStatus", status });
+        if (status === "closed" || status.startsWith("error:")) {
+          bridge = undefined;
+          send(ws, { type: "connection", status: "idle" });
+        }
       });
     };
 
@@ -175,17 +180,33 @@ export async function startServer(
           if (!profile) throw new Error("Profile not found.");
 
           closeBridge();
-          send(ws, { type: "connection", status: "connecting", profile });
-          bridge = new CodexBridge(profile, {
+          const secrets = {
             password: message.password?.trim() || undefined
+          };
+          const preferences = await getPreferences();
+          send(ws, { type: "connection", status: "connecting", profile });
+          const preflight = await preflightCodexCli(
+            profile,
+            secrets,
+            preferences
+          );
+          send(ws, {
+            type: "codexCli",
+            phase: "checked",
+            profileId: profile.id,
+            result: preflight
           });
+          if (preflight.missing) {
+            throw new Error(preflight.message || "Codex CLI не найден.");
+          }
+          bridge = new CodexBridge(profile, secrets);
           wireBridge(bridge);
           await bridge.start();
           send(ws, { type: "connection", status: "connected", profile });
           send(ws, {
             type: "threads",
             result: await bridge.listThreads({
-              limit: (await getPreferences()).historyLimit
+              limit: preferences.historyLimit
             })
           });
           return;
@@ -198,11 +219,13 @@ export async function startServer(
           send(ws, {
             type: "codexCli",
             phase: "checking",
+            profileId: profile.id,
             result: null
           });
           send(ws, {
             type: "codexCli",
             phase: "checked",
+            profileId: profile.id,
             result: await checkCodexCli(
               profile,
               { password: message.password?.trim() || undefined },
@@ -219,11 +242,13 @@ export async function startServer(
           send(ws, {
             type: "codexCli",
             phase: "updating",
+            profileId: profile.id,
             result: null
           });
           send(ws, {
             type: "codexCli",
             phase: "updated",
+            profileId: profile.id,
             result: await updateCodexCli(
               profile,
               { password: message.password?.trim() || undefined },

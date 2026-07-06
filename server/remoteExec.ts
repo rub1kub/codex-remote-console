@@ -420,6 +420,47 @@ export async function checkCodexCli(
   };
 }
 
+export async function preflightCodexCli(
+  profile: CodexProfile,
+  secrets: ConnectionSecrets,
+  preferences: AppPreferences
+): Promise<CodexCliStatus> {
+  const codexBin = shellQuotePath(profile.codexBin || "codex");
+  const command = [
+    "set +e",
+    `CODEX_PATH="$(command -v ${codexBin} 2>/dev/null)"`,
+    `INSTALLED_RAW="$(${codexBin} --version 2>/dev/null)"`,
+    'INSTALLED="$(printf "%s" "$INSTALLED_RAW" | awk \'{print $NF}\')"',
+    'printf "installed=%s\\n" "$INSTALLED"',
+    'printf "path=%s\\n" "$CODEX_PATH"',
+    'if [ -z "$CODEX_PATH" ] && [ -z "$INSTALLED" ]; then exit 127; fi'
+  ].join("; ");
+
+  const result = await runProfileCommand(profile, secrets, command);
+  if (result.exitCode !== 0 && !result.stdout.includes("installed=")) {
+    throw new Error(result.stderr.trim() || "Не удалось проверить Codex CLI.");
+  }
+
+  const parsed = parseKeyValue(result.stdout);
+  const installed = parsed.installed ?? "";
+  const cliPath = parsed.path ?? "";
+  const missing = !installed && !cliPath;
+  const installCommand = getCodexInstallCommand(profile, preferences);
+
+  return {
+    installed,
+    latest: "",
+    path: cliPath,
+    missing,
+    updateAvailable: false,
+    command: installCommand,
+    installCommand,
+    message: missing ? codexMissingMessage(profile) : undefined,
+    stdout: result.stdout,
+    stderr: result.stderr
+  };
+}
+
 export async function updateCodexCli(
   profile: CodexProfile,
   secrets: ConnectionSecrets,

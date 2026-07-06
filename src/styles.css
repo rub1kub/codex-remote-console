@@ -968,14 +968,33 @@ textarea:focus {
   font-size: 13px;
 }
 
+.error-banner-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
 .error-banner button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(139, 45, 45, 0.18);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.62);
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.error-banner button.icon-only {
   display: grid;
   width: 24px;
   height: 24px;
+  min-height: 24px;
   place-items: center;
+  padding: 0;
   background: transparent;
-  color: inherit;
-  cursor: pointer;
 }
 
 .messages {
@@ -1008,7 +1027,8 @@ textarea:focus {
 }
 
 .welcome,
-.thread-loading-state {
+.thread-loading-state,
+.bootstrap-card {
   display: grid;
   place-items: center;
   align-content: center;
@@ -1020,18 +1040,53 @@ textarea:focus {
 }
 
 .welcome h2,
-.thread-loading-state h2 {
+.thread-loading-state h2,
+.bootstrap-card h2 {
   margin: 14px 0 6px;
   color: #303833;
   font-size: 17px;
 }
 
-.thread-loading-state svg {
+.thread-loading-state svg,
+.bootstrap-card svg {
   color: #168a75;
 }
 
-.thread-loading-state p {
+.thread-loading-state p,
+.bootstrap-card p {
   margin: 0;
+}
+
+.bootstrap-card {
+  gap: 12px;
+  width: min(520px, 100%);
+  max-width: 520px;
+  padding: 24px;
+  border: 1px solid #dfe6e1;
+  border-radius: 14px;
+  background: #fbfcfb;
+  box-shadow: 0 12px 32px rgba(22, 28, 24, 0.08);
+}
+
+.bootstrap-card h2 {
+  margin: 0;
+  color: #202422;
+  font-size: 19px;
+  line-height: 1.2;
+}
+
+.bootstrap-card p {
+  color: #67716a;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.bootstrap-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 2px;
 }
 
 .turn-group {
@@ -2605,6 +2660,7 @@ textarea:focus {
 .theme-dark .chat-header h1,
 .theme-dark .welcome h2,
 .theme-dark .thread-loading-state h2,
+.theme-dark .bootstrap-card h2,
 .theme-dark .message-author,
 .theme-dark .message-text,
 .theme-dark .settings-section h3,
@@ -2631,6 +2687,7 @@ textarea:focus {
 .theme-dark .empty-note,
 .theme-dark .welcome p,
 .theme-dark .thread-loading-state p,
+.theme-dark .bootstrap-card p,
 .theme-dark .message-title {
   color: #9aa69e;
 }
@@ -2664,7 +2721,8 @@ textarea:focus {
 .theme-dark .command-icon,
 .theme-dark .steps-summary,
 .theme-dark .step-item,
-.theme-dark .file-summary-chip {
+.theme-dark .file-summary-chip,
+.theme-dark .bootstrap-card {
   border-color: #2b352f;
   background: #171d19;
   color: #e7ece8;
@@ -2738,6 +2796,22 @@ textarea:focus {
 
 .theme-dark .composer-settings-control span:first-of-type {
   color: #e0e6e2;
+}
+
+.theme-dark .error-banner {
+  border-color: #6b3032;
+  background: #241819;
+  color: #ffb7b7;
+}
+
+.theme-dark .error-banner button {
+  border-color: #653033;
+  background: #2d1d1f;
+  color: #ffd1d1;
+}
+
+.theme-dark .error-banner button.icon-only {
+  background: transparent;
 }
 
 .theme-dark .thread-context-menu button.danger {

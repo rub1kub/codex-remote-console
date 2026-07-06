@@ -119,6 +119,6 @@ export type ServerMessage =
   | { type: "turn"; result: { turn: Turn } }
   | { type: "notification"; message: { method: string; params: any } }
   | { type: "log"; line: string }
-  | { type: "codexCli"; phase: "checking" | "checked" | "updating" | "updated"; result: CodexCliStatus | null }
+  | { type: "codexCli"; phase: "checking" | "checked" | "updating" | "updated"; profileId?: string; result: CodexCliStatus | null }
   | { type: "error"; message: string }
   | { type: "interrupt"; result: unknown };

@@ -458,19 +458,20 @@ function collapseAssistantSegment(segment: ChatMessage[]): MessageDisplayItem[] 
     return [{ type: "steps", id: buildStepGroupId(segment), messages: segment }];
   }
 
-  if (finalAssistantIndex <= 0) {
-    return segment.map((message): MessageDisplayItem => ({ type: "message", message }));
+  const beforeFinal = segment.slice(0, finalAssistantIndex);
+  const finalMessage = segment[finalAssistantIndex];
+  const afterFinal = segment.slice(finalAssistantIndex + 1);
+  const items: MessageDisplayItem[] = [];
+
+  if (beforeFinal.length > 0) {
+    items.push({ type: "steps", id: buildStepGroupId(beforeFinal), messages: beforeFinal });
+  }
+  items.push({ type: "message", message: finalMessage });
+  if (afterFinal.length > 0) {
+    items.push({ type: "steps", id: buildStepGroupId(afterFinal), messages: afterFinal });
   }
 
-  const collapsed = segment.slice(0, finalAssistantIndex);
-  if (collapsed.length === 0) {
-    return segment.map((message): MessageDisplayItem => ({ type: "message", message }));
-  }
-
-  return [
-    { type: "steps", id: buildStepGroupId(collapsed), messages: collapsed },
-    ...segment.slice(finalAssistantIndex).map((message): MessageDisplayItem => ({ type: "message", message }))
-  ];
+  return items;
 }
 
 function buildMessageDisplay(messages: ChatMessage[]): MessageDisplayItem[] {
@@ -572,6 +573,39 @@ function previewText(text: string) {
   return normalized.length > 160 ? `${normalized.slice(0, 160)}...` : normalized;
 }
 
+function stepLabelOf(message: ChatMessage) {
+  if (message.title?.startsWith("Команда")) return "Команда";
+  if (message.title === "Изменения файлов") return "Файлы";
+  if (message.title === "План") return "План";
+  return message.title || messageRoleLabel[message.role];
+}
+
+function stepPreviewOf(message: ChatMessage) {
+  if (message.title?.startsWith("Команда")) {
+    const [command, ...output] = message.text.split(/\n{2,}/);
+    const outputPreview = previewText(output.join(" "));
+    return outputPreview ? `${command} · ${outputPreview}` : command;
+  }
+  return previewText(message.text) || "Без текста";
+}
+
+function isThreadNotFoundError(value: string) {
+  return /thread not found/i.test(value);
+}
+
+function friendlyErrorMessage(value: string) {
+  if (isThreadNotFoundError(value)) {
+    return "Codex app-server не вернул этот чат. История могла переехать, быть архивирована или не попасть в текущую папку проекта.";
+  }
+  if (/Codex CLI не найден/i.test(value)) {
+    return value;
+  }
+  if (/Connect to a profile first/i.test(value)) {
+    return "Сначала подключитесь к проекту.";
+  }
+  return value;
+}
+
 export default function App() {
   const initialUiStateRef = useRef(readStoredUiState());
   const [profiles, setProfiles] = useState<CodexProfile[]>([]);
@@ -594,6 +628,7 @@ export default function App() {
   const [preferences, setPreferences] = useState<AppPreferences>(defaultPreferences);
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const [cliStatus, setCliStatus] = useState<CodexCliStatus | null>(null);
+  const [cliProfileId, setCliProfileId] = useState("");
   const [cliPhase, setCliPhase] = useState<"idle" | "checking" | "checked" | "updating" | "updated">("idle");
   const [error, setError] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
@@ -693,6 +728,7 @@ export default function App() {
   const selectedSpeedLabel =
     speedOptions.find((option) => option.value === preferences.responseSpeed)?.label ||
     "скорость";
+  const selectedCliStatus = cliProfileId === selectedProfileId ? cliStatus : null;
   const showFinishedTaskStatus =
     Boolean(taskCompletedAt) && taskNow - (taskCompletedAt ?? 0) < 12_000;
   const showTaskStatus = isBusy || showFinishedTaskStatus;
@@ -1003,6 +1039,9 @@ export default function App() {
 
     if (message.type === "codexCli") {
       setCliPhase(message.phase);
+      if (message.profileId) {
+        setCliProfileId(message.profileId);
+      }
       if (message.result) {
         setCliStatus(message.result);
       }
@@ -1059,7 +1098,7 @@ export default function App() {
     }
 
     if (message.type === "error") {
-      setError(message.message);
+      setError(friendlyErrorMessage(message.message));
       setBusy(false);
       setLoadingThreadId("");
       return;
@@ -1266,6 +1305,7 @@ export default function App() {
       setProfileOpen(true);
       return;
     }
+    setCliProfileId(selectedProfileId);
     setCliPhase("checking");
     send({
       type: "checkCodexCli",
@@ -1279,6 +1319,7 @@ export default function App() {
       setProfileOpen(true);
       return;
     }
+    setCliProfileId(selectedProfileId);
     setCliPhase("updating");
     send({
       type: "updateCodexCli",
@@ -1440,6 +1481,41 @@ export default function App() {
     }
   }
 
+  async function hideActiveThreadLocally() {
+    if (!activeThread) return;
+
+    const thread = activeThread;
+    const previousThreads = threads;
+    const previousMetadata = threadMetadata;
+    setThreads((current) => current.filter((item) => item.id !== thread.id));
+    setThreadMetadata((current) => ({
+      ...current,
+      [thread.id]: { ...current[thread.id], pinned: undefined, hidden: true }
+    }));
+    setActiveThread(null);
+    setMessages([]);
+    setLoadingThreadId("");
+    setOpenStepGroups({});
+    setError("");
+
+    try {
+      const response = await fetch(`/api/thread-metadata/${encodeURIComponent(thread.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hidden: true, pinned: false })
+      });
+      const data = (await response.json()) as { metadata?: ThreadMetadata; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "Не удалось скрыть чат.");
+      }
+    } catch (hideError) {
+      setThreads(previousThreads);
+      setThreadMetadata(previousMetadata);
+      setActiveThread(thread);
+      setError(hideError instanceof Error ? hideError.message : "Не удалось скрыть чат.");
+    }
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault();
     const text = input.trim();
@@ -1546,15 +1622,20 @@ export default function App() {
 
   const canSend = connection === "connected" && input.trim().length > 0;
   const isCliWorking = cliPhase === "checking" || cliPhase === "updating";
-  const isCodexMissing = Boolean(cliStatus?.missing);
+  const isCodexMissing = Boolean(selectedCliStatus?.missing);
   const cliVersionLabel = isCodexMissing
     ? "не установлен"
-    : cliStatus?.installed || "не проверено";
+    : selectedCliStatus?.installed || "не проверено";
   const canInstallOrUpdateCodex =
     Boolean(selectedProfileId) &&
     !isCliWorking &&
-    Boolean(isCodexMissing || cliStatus?.updateAvailable);
+    Boolean(isCodexMissing || selectedCliStatus?.updateAvailable);
   const codexActionLabel = isCodexMissing ? "Установить" : "Обновить";
+  const showCodexBootstrap =
+    Boolean(selectedProfile) &&
+    connection !== "connected" &&
+    Boolean(selectedCliStatus?.missing);
+  const threadNotFoundRecovery = isThreadNotFoundError(error);
   const rootClassName = [
     "app-shell",
     `theme-${preferences.theme}`,
@@ -1833,9 +1914,23 @@ export default function App() {
         {error && (
           <div className="error-banner">
             <span>{error}</span>
-            <button onClick={() => setError("")}>
-              <X size={14} />
-            </button>
+            <div className="error-banner-actions">
+              {threadNotFoundRecovery && (
+                <>
+                  <button type="button" onClick={() => refreshThreads()}>
+                    Обновить
+                  </button>
+                  {activeThread && (
+                    <button type="button" onClick={() => void hideActiveThreadLocally()}>
+                      Скрыть
+                    </button>
+                  )}
+                </>
+              )}
+              <button type="button" className="icon-only" onClick={() => setError("")} aria-label="Закрыть">
+                <X size={14} />
+              </button>
+            </div>
           </div>
         )}
 
@@ -1845,6 +1940,26 @@ export default function App() {
               <Loader2 size={26} className="spin" />
               <h2>Загружаю чат</h2>
               <p>Поднимаю историю с сервера.</p>
+            </div>
+          ) : showCodexBootstrap ? (
+            <div className="bootstrap-card">
+              <Terminal size={28} />
+              <h2>Codex не установлен</h2>
+              <p>{selectedCliStatus?.message || "Установите Codex CLI на выбранном проекте и подключитесь снова."}</p>
+              <div className="bootstrap-actions">
+                <button type="button" className="primary-button" onClick={updateCodexCli} disabled={isCliWorking}>
+                  {cliPhase === "updating" ? <Loader2 size={15} className="spin" /> : <Download size={15} />}
+                  Установить Codex
+                </button>
+                <button type="button" className="secondary-button" onClick={checkCodexCli} disabled={isCliWorking}>
+                  {cliPhase === "checking" ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}
+                  Проверить
+                </button>
+                <button type="button" className="secondary-button" onClick={openSettings}>
+                  <SlidersHorizontal size={15} />
+                  Настройки
+                </button>
+              </div>
             </div>
           ) : messages.length === 0 ? (
             <div className="welcome">
@@ -1893,8 +2008,8 @@ export default function App() {
                               <div className="steps-list">
                                 {item.messages.map((message) => (
                                   <article key={message.id} className={`step-item ${message.role}`}>
-                                    <span>{message.title || messageRoleLabel[message.role]}</span>
-                                    <p>{previewText(message.text) || "Без текста"}</p>
+                                    <span>{stepLabelOf(message)}</span>
+                                    <p>{stepPreviewOf(message)}</p>
                                   </article>
                                 ))}
                               </div>
@@ -2237,7 +2352,7 @@ export default function App() {
                     disabled={isDirectoryLoading}
                   >
                     {isDirectoryLoading ? <Loader2 size={15} className="spin" /> : <FolderOpen size={15} />}
-                    Показать папки
+                    Выбрать папку
                   </button>
                 </div>
 
@@ -2315,7 +2430,7 @@ export default function App() {
                           disabled={isDirectoryLoading}
                         >
                           {isDirectoryLoading ? <Loader2 size={15} className="spin" /> : <FolderOpen size={15} />}
-                          Показать папки
+                          Открыть список
                         </button>
                       </div>
                     )}
@@ -2586,7 +2701,7 @@ export default function App() {
                 </div>
                 <div>
                   <span>Новая версия</span>
-                  <strong>{cliStatus?.latest || "неизвестно"}</strong>
+                  <strong>{selectedCliStatus?.latest || "неизвестно"}</strong>
                 </div>
                 <button className="secondary-button" onClick={checkCodexCli} disabled={!selectedProfileId || isCliWorking}>
                   {cliPhase === "checking" ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}
@@ -2601,10 +2716,10 @@ export default function App() {
                   {codexActionLabel}
                 </button>
               </div>
-              {cliStatus?.message && (
+              {selectedCliStatus?.message && (
                 <div className="cli-install-note">
                   <Terminal size={14} />
-                  <span>{cliStatus.message}</span>
+                  <span>{selectedCliStatus.message}</span>
                 </div>
               )}
               <label>
