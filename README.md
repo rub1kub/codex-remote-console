@@ -14,8 +14,17 @@ Minimal desktop app for working with Codex CLI sessions on remote servers withou
 - Opens previous chats, resumes them, and starts new dialogs in the selected project.
 - Pins chats locally, renames them, and hides them with confirmation.
 - Collapses intermediate work into one "work progress" block and keeps the final answer readable.
+- Queues a new task while Codex is busy instead of accidentally starting overlapping work.
+- Restores an unfinished task state after app restart and offers reconnect/refresh actions.
+- Shows a compact task summary with elapsed time, token usage, touched files, commands, and checks.
+- Opens changed files in an integrated diff viewer.
+- Runs a project health check for git state, package scripts, available checks, and recent logs.
+- Stores per-project quick commands and runs them from the GUI.
+- Keeps a quiet local event journal for connection, history, errors, Codex updates, and commands.
+- Reconnects automatically when the SSH/app-server connection drops.
 - Shows changed files in final messages.
 - Provides a compact command palette with `Cmd/Ctrl+K`.
+- Provides slash commands such as `/diff`, `/status`, `/commands`, `/review`, `/compact`, `/doctor`, `/features`, `/mcp`, `/plugins`, and `@file` mentions.
 - Checks whether Codex CLI is installed, shows the installed/latest version when available, and can install or update it from Settings.
 - Uses a temporary SSH password only for the current connection; it is not stored.
 - Runs with the default project profile close to `codex --yolo`: `approvalPolicy=never`, `sandbox=danger-full-access`.
@@ -137,6 +146,23 @@ Profiles, preferences, and local chat pins are stored in:
 - `Terminal`: darker sidebar and a more engineering-oriented rhythm.
 
 Light, dark, and system themes are supported.
+
+## Codex CLI Coverage
+
+Implemented in the GUI:
+
+- `resume`, `fork`, `archive`, `delete`: available through chat history and the chat context menu.
+- `model`, reasoning, speed, approvals, sandbox: available in the composer/project settings.
+- `doctor` and `features list`: available through `/doctor`, `/features`, and `Cmd/Ctrl+K`.
+- `review`: available through `/review`.
+- project commands: available through `/commands` and the project command runner.
+- diff/project status: available through `/diff` and `/status`.
+
+Still intentionally not mirrored as separate polished screens:
+
+- MCP/plugin marketplace management. The app can ask Codex about MCP/plugins from chat, but full install/login/remove flows are still CLI-level operations.
+- `cloud` and `apply` workflows. They need dedicated UX around remote tasks and patch application before becoming one-click actions.
+- Image attachments. Text chat and file mentions are supported; image upload needs a separate attachment flow.
 
 ## Checks
 

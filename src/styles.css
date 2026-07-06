@@ -352,7 +352,7 @@ button:active {
 
 .folder-row {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   min-height: 32px;
@@ -381,6 +381,17 @@ button:active {
 
 .folder-row:hover svg {
   color: #168a75;
+}
+
+.folder-badges {
+  color: #168a75;
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.folder-badges.empty {
+  display: none;
 }
 
 .folder-empty,
@@ -848,7 +859,7 @@ textarea:focus {
 .chat {
   display: grid;
   grid-row: 2;
-  grid-template-rows: auto auto 1fr auto auto auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto auto auto auto;
   min-width: 0;
   height: 100%;
   min-height: 0;
@@ -997,8 +1008,37 @@ textarea:focus {
   background: transparent;
 }
 
-.messages {
+.reconnect-banner {
   grid-row: 3;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 10px 28px 0;
+  padding: 9px 11px;
+  border: 1px solid #cfe8df;
+  border-radius: 8px;
+  background: #f1fbf7;
+  color: #13735f;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.reconnect-banner button,
+.queue-status button {
+  margin-left: auto;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.messages {
+  grid-row: 4;
   position: relative;
   z-index: var(--z-messages);
   display: flex;
@@ -1328,9 +1368,16 @@ textarea:focus {
   border-radius: 7px;
   background: #f2f7f4;
   color: #13735f;
+  cursor: pointer;
   font-size: 12px;
   font-weight: 720;
+  font-family: inherit;
   overflow-wrap: anywhere;
+}
+
+.file-summary-chip:hover {
+  border-color: #bfe0d8;
+  background: #eaf8f4;
 }
 
 .file-summary-chip small {
@@ -1411,8 +1458,105 @@ textarea:focus {
   color: #8a948d !important;
 }
 
+.task-summary-card {
+  grid-row: 5;
+  display: grid;
+  gap: 10px;
+  width: min(980px, calc(100% - 56px));
+  margin: 0 auto 10px;
+  padding: 10px 12px;
+  border: 1px solid #dfe6e1;
+  border-radius: 10px;
+  background: #fbfcfb;
+  box-shadow: 0 1px 0 rgba(24, 30, 26, 0.04);
+}
+
+.task-summary-head,
+.task-summary-head > div,
+.task-summary-grid,
+.task-summary-files,
+.queue-status {
+  display: flex;
+  align-items: center;
+}
+
+.task-summary-head {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.task-summary-head > div {
+  gap: 7px;
+  color: #13735f;
+  font-size: 13px;
+}
+
+.task-summary-head small {
+  color: #7a837d;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.task-summary-grid {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-summary-grid span,
+.task-summary-files button {
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid #d7ddd7;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #5f6a63;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.task-summary-grid strong {
+  color: #26302a;
+}
+
+.task-summary-files {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-summary-files button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.task-summary-files button:hover {
+  border-color: #bfe0d8;
+  color: #13735f;
+}
+
+.task-summary-details {
+  display: grid;
+  gap: 5px;
+  color: #69736c;
+  font-size: 12px;
+}
+
+.task-summary-details summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.task-summary-details code {
+  display: block;
+  overflow: hidden;
+  padding: 4px 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .task-status {
-  grid-row: 4;
+  grid-row: 6;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1481,8 +1625,23 @@ textarea:focus {
   font-weight: 760;
 }
 
+.queue-status {
+  grid-row: 7;
+  width: min(980px, calc(100% - 56px));
+  min-height: 34px;
+  margin: 0 auto 10px;
+  padding: 7px 10px;
+  gap: 8px;
+  border: 1px solid #dfe6e1;
+  border-radius: 10px;
+  background: #fbfcfb;
+  color: #69736c;
+  font-size: 12px;
+  font-weight: 780;
+}
+
 .composer {
-  grid-row: 5;
+  grid-row: 8;
   position: relative;
   z-index: var(--z-composer);
   width: 100%;
@@ -1508,6 +1667,56 @@ textarea:focus {
   border-radius: 14px;
   background: #ffffff;
   box-shadow: 0 1px 0 rgba(24, 30, 26, 0.04);
+}
+
+.composer-suggest {
+  position: absolute;
+  right: 7px;
+  bottom: calc(100% + 8px);
+  left: 7px;
+  z-index: var(--z-popover);
+  display: grid;
+  gap: 3px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid #d8ded9;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 50px rgba(24, 30, 26, 0.18);
+  backdrop-filter: blur(18px);
+}
+
+.composer-suggest button,
+.suggest-loading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: transparent;
+  color: #26302a;
+  cursor: pointer;
+  text-align: left;
+}
+
+.composer-suggest button:hover {
+  background: #f0f3f0;
+}
+
+.composer-suggest code {
+  color: #13735f;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.composer-suggest span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .composer:focus-within .composer-box {
@@ -1744,8 +1953,14 @@ textarea:focus {
   color: #a93636;
 }
 
+.send-button.queue {
+  border-color: #cfe8df;
+  background: #f1fbf7;
+  color: #13735f;
+}
+
 .diagnostics {
-  grid-row: 6;
+  grid-row: 9;
   padding: 0 28px 16px;
   color: #68736c;
   font-size: 12px;
@@ -1917,6 +2132,141 @@ textarea:focus {
 
 .chat-modal {
   width: min(460px, 100%);
+}
+
+.panel-backdrop {
+  place-items: center;
+}
+
+.wide-panel {
+  width: min(980px, calc(100vw - 48px));
+}
+
+.command-runner-panel,
+.journal-panel {
+  width: min(720px, calc(100vw - 48px));
+}
+
+.panel-loading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 90px;
+  justify-content: center;
+  color: #69736c;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.diff-viewer,
+.health-sections,
+.command-result,
+.journal-list {
+  display: grid;
+  gap: 10px;
+}
+
+.diff-viewer section,
+.health-sections details,
+.command-result {
+  overflow: hidden;
+  border: 1px solid #dfe5df;
+  border-radius: 8px;
+  background: #fbfcfb;
+}
+
+.diff-viewer h3,
+.health-sections summary {
+  margin: 0;
+  padding: 9px 10px;
+  border-bottom: 1px solid #e5eae5;
+  color: #303833;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.diff-viewer pre,
+.health-sections pre,
+.command-result pre {
+  max-height: min(520px, 55vh);
+  margin: 0;
+  overflow: auto;
+  padding: 10px;
+  color: #26302a;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.health-grid > div,
+.command-result > div {
+  display: grid;
+  gap: 4px;
+  padding: 9px;
+  border: 1px solid #dfe5df;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.health-grid span,
+.command-result span {
+  color: #7a837d;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.health-grid strong,
+.command-result strong {
+  color: #26302a;
+  font-size: 13px;
+}
+
+.health-actions,
+.quick-command-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quick-command-list button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #d7ddd7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #33413a;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.quick-command-list button:hover {
+  border-color: #bfe0d8;
+  color: #13735f;
+}
+
+.journal-list {
+  max-height: min(520px, 60vh);
+  overflow: auto;
+}
+
+.journal-list code,
+.journal-list span {
+  display: block;
+  padding: 8px 0;
+  border-bottom: 1px solid #edf0ed;
+  color: #5f6a63;
+  font-size: 12px;
 }
 
 .confirm-copy {
@@ -2628,6 +2978,7 @@ textarea:focus {
 .theme-dark .profile-modal,
 .theme-dark .command-modal,
 .theme-dark .composer-popover,
+.theme-dark .composer-suggest,
 .theme-dark .thread-context-menu {
   background: #111513;
 }
@@ -2692,6 +3043,12 @@ textarea:focus {
   color: #9aa69e;
 }
 
+.theme-dark .reconnect-banner {
+  border-color: #24433a;
+  background: #13231d;
+  color: #7ce1cb;
+}
+
 .theme-dark select,
 .theme-dark input,
 .theme-dark textarea,
@@ -2722,6 +3079,13 @@ textarea:focus {
 .theme-dark .steps-summary,
 .theme-dark .step-item,
 .theme-dark .file-summary-chip,
+.theme-dark .task-summary-card,
+.theme-dark .queue-status,
+.theme-dark .diff-viewer section,
+.theme-dark .health-sections details,
+.theme-dark .command-result,
+.theme-dark .health-grid > div,
+.theme-dark .quick-command-list button,
 .theme-dark .bootstrap-card {
   border-color: #2b352f;
   background: #171d19;
@@ -2733,6 +3097,7 @@ textarea:focus {
 .theme-dark .message.tool .message-body,
 .theme-dark .files-body,
 .theme-dark .composer-popover,
+.theme-dark .composer-suggest,
 .theme-dark .advanced-details[open] summary {
   border-color: #2b352f;
   background: #151a17;
@@ -2770,7 +3135,9 @@ textarea:focus {
 .theme-dark .popover-option,
 .theme-dark .popover-disclosure,
 .theme-dark .thread-context-menu button,
-.theme-dark .command-item {
+.theme-dark .command-item,
+.theme-dark .composer-suggest button,
+.theme-dark .suggest-loading {
   color: #cdd7d1;
 }
 
@@ -2789,9 +3156,17 @@ textarea:focus {
 }
 
 .theme-dark .command-item:hover:not(:disabled),
-.theme-dark .command-search button:hover {
+.theme-dark .command-search button:hover,
+.theme-dark .composer-suggest button:hover,
+.theme-dark .quick-command-list button:hover {
   background: #202822;
   color: #edf3ef;
+}
+
+.theme-dark .send-button.queue {
+  border-color: #24433a;
+  background: #13231d;
+  color: #7ce1cb;
 }
 
 .theme-dark .composer-settings-control span:first-of-type {
@@ -2834,6 +3209,34 @@ textarea:focus {
   border-color: #2b352f;
   background: #101411;
   color: #dce5df;
+}
+
+.theme-dark .diff-viewer h3,
+.theme-dark .health-sections summary,
+.theme-dark .diff-viewer pre,
+.theme-dark .health-sections pre,
+.theme-dark .command-result pre,
+.theme-dark .task-summary-grid strong,
+.theme-dark .health-grid strong,
+.theme-dark .command-result strong {
+  border-color: #2b352f;
+  color: #edf3ef;
+}
+
+.theme-dark .task-summary-head > div,
+.theme-dark .task-summary-files button:hover,
+.theme-dark .folder-badges {
+  color: #7ce1cb;
+}
+
+.theme-dark .journal-list code,
+.theme-dark .journal-list span,
+.theme-dark .task-summary-head small,
+.theme-dark .task-summary-grid span,
+.theme-dark .health-grid span,
+.theme-dark .command-result span {
+  border-color: #27302b;
+  color: #9aa69e;
 }
 
 .theme-dark .inline-code,

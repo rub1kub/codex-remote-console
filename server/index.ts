@@ -14,7 +14,16 @@ import {
   savePreferences,
   saveProfile
 } from "./profiles";
-import { checkCodexCli, listDirectories, preflightCodexCli, updateCodexCli } from "./remoteExec";
+import {
+  checkCodexCli,
+  inspectProjectHealth,
+  listDirectories,
+  preflightCodexCli,
+  readProjectDiff,
+  runProjectQuickCommand,
+  searchProjectFiles,
+  updateCodexCli
+} from "./remoteExec";
 
 type StartServerOptions = {
   host?: string;
@@ -34,6 +43,23 @@ function send(ws: WebSocket, payload: unknown) {
   if (ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify(payload));
   }
+}
+
+async function getProfileWithSecrets(body: Record<string, unknown> = {}) {
+  const profileId = typeof body.profileId === "string" ? body.profileId : "";
+  if (!profileId) throw new Error("profileId is required.");
+
+  const profile = await getProfile(profileId);
+  if (!profile) throw new Error("Profile not found.");
+
+  return {
+    profile,
+    secrets: {
+      password: typeof body.password === "string" && body.password.trim()
+        ? body.password.trim()
+        : undefined
+    }
+  };
 }
 
 export async function startServer(
@@ -102,6 +128,47 @@ export async function startServer(
           password: typeof password === "string" ? password : undefined
         })
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/project/health", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      response.json({ health: await inspectProjectHealth(profile, secrets) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/project/diff", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      const files = Array.isArray(request.body?.files)
+        ? request.body.files.filter((file: unknown): file is string => typeof file === "string")
+        : [];
+      response.json({ diff: await readProjectDiff(profile, secrets, files) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/project/files", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      const query = typeof request.body?.query === "string" ? request.body.query : "";
+      response.json({ files: await searchProjectFiles(profile, secrets, query) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/project/command", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      const command = typeof request.body?.command === "string" ? request.body.command : "";
+      response.json({ result: await runProjectQuickCommand(profile, secrets, command) });
     } catch (error) {
       next(error);
     }
@@ -286,20 +353,38 @@ export async function startServer(
           });
         } else if (message.type === "deleteThread") {
           if (!message.threadId) throw new Error("threadId is required.");
-          let archived = false;
-          let archiveError: string | undefined;
-          try {
-            await bridge.archiveThread(message.threadId);
-            archived = true;
-          } catch (error) {
-            archiveError = error instanceof Error ? error.message : String(error);
-          }
+          await bridge.deleteThread(message.threadId);
           send(ws, {
             type: "threadDeleted",
             threadId: message.threadId,
-            archived,
-            archiveError
+            archived: false
           });
+        } else if (message.type === "archiveThread") {
+          if (!message.threadId) throw new Error("threadId is required.");
+          try {
+            await bridge.archiveThread(message.threadId);
+            send(ws, {
+              type: "threadDeleted",
+              threadId: message.threadId,
+              archived: true
+            });
+          } catch (error) {
+            send(ws, {
+              type: "threadDeleted",
+              threadId: message.threadId,
+              archived: false,
+              archiveError: error instanceof Error ? error.message : String(error)
+            });
+          }
+        } else if (message.type === "forkThread") {
+          if (!message.threadId) throw new Error("threadId is required.");
+          send(ws, {
+            type: "thread",
+            result: await bridge.forkThread(message.threadId)
+          });
+        } else if (message.type === "compactThread") {
+          if (!message.threadId) throw new Error("threadId is required.");
+          send(ws, { type: "turn", result: await bridge.compactThread(message.threadId) });
         } else if (message.type === "resumeThread") {
           if (!message.threadId) throw new Error("threadId is required.");
           send(ws, {

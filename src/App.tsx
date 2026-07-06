@@ -43,6 +43,10 @@ import type {
   CodexProfile,
   CodexThread,
   DirectoryListing,
+  FileSearchResult,
+  ProjectCommandResult,
+  ProjectDiff,
+  ProjectHealth,
   ServerMessage,
   ThreadMetadata,
   ThreadItem
@@ -56,6 +60,12 @@ type StoredUiState = {
   selectedProfileId?: string;
   activeThreadId?: string;
   search?: string;
+};
+type StoredActiveTask = {
+  profileId: string;
+  threadId?: string;
+  title: string;
+  startedAt: number;
 };
 type FileSummary = {
   key: string;
@@ -76,8 +86,50 @@ type TaskTokenStats = {
   output?: number;
   total?: number;
 };
+type TaskCommandSummary = {
+  command: string;
+  exitCode?: number | null;
+  preview?: string;
+};
+type TaskSummary = {
+  id: string;
+  title: string;
+  elapsedMs: number;
+  tokens: TaskTokenStats | null;
+  files: FileSummary[];
+  commands: TaskCommandSummary[];
+  tests: TaskCommandSummary[];
+  completedAt: number;
+};
+type QueuedTask = {
+  id: string;
+  text: string;
+  createdAt: number;
+};
+type DiffPanelState = {
+  open: boolean;
+  loading: boolean;
+  files: FileSummary[];
+  result?: ProjectDiff;
+  error?: string;
+};
+type HealthPanelState = {
+  open: boolean;
+  loading: boolean;
+  result?: ProjectHealth;
+  error?: string;
+};
+type CommandRunnerState = {
+  open: boolean;
+  running: boolean;
+  command: string;
+  result?: ProjectCommandResult;
+  error?: string;
+};
 
 const uiStateStorageKey = "codex-remote-ui-state";
+const activeTaskStorageKey = "codex-remote-active-task";
+const recentProjectPathsStorageKey = "codex-remote-recent-project-paths";
 
 const defaultUpdateCommand =
   "(set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh) || npm install -g @openai/codex@latest";
@@ -107,6 +159,7 @@ const emptyDraft: ProfileDraft = {
   projectPath: "",
   codexBin: "codex",
   updateCommand: "",
+  quickCommands: [],
   approvalPolicy: "never",
   sandboxMode: "danger-full-access"
 };
@@ -161,6 +214,46 @@ function writeStoredUiState(patch: StoredUiState) {
     uiStateStorageKey,
     JSON.stringify({ ...current, ...patch })
   );
+}
+
+function readStoredActiveTask(): StoredActiveTask | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(activeTaskStorageKey);
+    return raw ? JSON.parse(raw) as StoredActiveTask : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredActiveTask(task: StoredActiveTask | null) {
+  if (typeof window === "undefined") return;
+  if (!task) {
+    window.localStorage.removeItem(activeTaskStorageKey);
+    return;
+  }
+  window.localStorage.setItem(activeTaskStorageKey, JSON.stringify(task));
+}
+
+function readRecentProjectPaths(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(recentProjectPathsStorageKey);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string").slice(0, 8)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentProjectPath(pathValue: string) {
+  if (typeof window === "undefined") return;
+  const clean = pathValue.trim();
+  if (!clean) return;
+  const next = [clean, ...readRecentProjectPaths().filter((item) => item !== clean)].slice(0, 8);
+  window.localStorage.setItem(recentProjectPathsStorageKey, JSON.stringify(next));
 }
 
 const formatDate = (seconds: number) =>
@@ -392,6 +485,61 @@ function itemToMessage(item: ThreadItem): ChatMessage | null {
   }
 
   return null;
+}
+
+function commandSummaryFromItem(item: ThreadItem): TaskCommandSummary | null {
+  if (item.type !== "commandExecution" || !item.command) return null;
+  const output = item.aggregatedOutput?.trim() || "";
+  return {
+    command: item.command,
+    exitCode: item.exitCode,
+    preview: previewText(output)
+  };
+}
+
+function fileSummariesFromItem(item: ThreadItem): FileSummary[] {
+  if (item.type !== "fileChange" || !Array.isArray(item.changes)) return [];
+  return item.changes
+    .map((change): FileSummary | null => {
+      const filePath = change.path?.trim();
+      if (!filePath) return null;
+      return {
+        key: filePath,
+        label: basenameOf(filePath),
+        path: filePath,
+        operation: change.operation
+      };
+    })
+    .filter((file): file is FileSummary => file !== null);
+}
+
+function isTestLikeCommand(command: string) {
+  return /\b(test|lint|typecheck|build|pytest|unittest|vitest|jest|tsc)\b/i.test(command);
+}
+
+function mergeFiles(left: FileSummary[], right: FileSummary[]) {
+  const files = new Map<string, FileSummary>();
+  [...left, ...right].forEach((file) => {
+    files.set(file.path, file);
+  });
+  return Array.from(files.values());
+}
+
+function defaultQuickCommands(profile?: CodexProfile | null) {
+  const commands = ["git status --short"];
+  if (profile?.quickCommands?.length) {
+    commands.push(...profile.quickCommands);
+  } else {
+    commands.push("npm test", "npm run build");
+  }
+  return commands.filter((command, index, list) => list.indexOf(command) === index);
+}
+
+function packageScriptCommand(packageManager: string, script: string) {
+  if (packageManager === "yarn") return `yarn ${script}`;
+  if (packageManager === "pnpm") return `pnpm ${script}`;
+  if (packageManager === "bun") return `bun run ${script}`;
+  return `npm run ${script}`;
 }
 
 function threadToMessages(thread: CodexThread | null): ChatMessage[] {
@@ -675,6 +823,30 @@ export default function App() {
   const [isCommandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [isSettingsClosing, setSettingsClosing] = useState(false);
+  const [taskQueue, setTaskQueue] = useState<QueuedTask[]>([]);
+  const [lastTaskSummary, setLastTaskSummary] = useState<TaskSummary | null>(null);
+  const [diffPanel, setDiffPanel] = useState<DiffPanelState>({
+    open: false,
+    loading: false,
+    files: []
+  });
+  const [healthPanel, setHealthPanel] = useState<HealthPanelState>({
+    open: false,
+    loading: false
+  });
+  const [commandRunner, setCommandRunner] = useState<CommandRunnerState>({
+    open: false,
+    running: false,
+    command: ""
+  });
+  const [isJournalOpen, setJournalOpen] = useState(false);
+  const [fileMentionQuery, setFileMentionQuery] = useState("");
+  const [fileMentionResults, setFileMentionResults] = useState<FileSearchResult[]>([]);
+  const [isFileMentionLoading, setFileMentionLoading] = useState(false);
+  const [recoveryTask, setRecoveryTask] = useState<StoredActiveTask | null>(() => readStoredActiveTask());
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const [isReconnectPaused, setReconnectPaused] = useState(false);
+  const [recentProjectPaths, setRecentProjectPaths] = useState<string[]>(() => readRecentProjectPaths());
 
   const wsRef = useRef<WebSocket | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -684,11 +856,51 @@ export default function App() {
   const didRestoreThreadRef = useRef(false);
   const settingsVisibleRef = useRef(false);
   const settingsCloseTimerRef = useRef<number | null>(null);
+  const selectedProfileIdRef = useRef("");
+  const selectedProfileRef = useRef<CodexProfile | null>(null);
+  const activeThreadRef = useRef<CodexThread | null>(null);
+  const connectionRef = useRef<ConnectionState>("idle");
+  const manualDisconnectRef = useRef(false);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const taskQueueRef = useRef<QueuedTask[]>([]);
+  const taskStartedAtRef = useRef<number | null>(null);
+  const taskTokensRef = useRef<TaskTokenStats | null>(null);
+  const taskCommandsRef = useRef<TaskCommandSummary[]>([]);
+  const taskFilesRef = useRef<FileSummary[]>([]);
+  const fileMentionTimerRef = useRef<number | null>(null);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId),
     [profiles, selectedProfileId]
   );
+
+  useEffect(() => {
+    selectedProfileIdRef.current = selectedProfileId;
+  }, [selectedProfileId]);
+
+  useEffect(() => {
+    selectedProfileRef.current = selectedProfile ?? null;
+  }, [selectedProfile]);
+
+  useEffect(() => {
+    activeThreadRef.current = activeThread;
+  }, [activeThread]);
+
+  useEffect(() => {
+    connectionRef.current = connection;
+  }, [connection]);
+
+  useEffect(() => {
+    taskQueueRef.current = taskQueue;
+  }, [taskQueue]);
+
+  useEffect(() => {
+    taskStartedAtRef.current = taskStartedAt;
+  }, [taskStartedAt]);
+
+  useEffect(() => {
+    taskTokensRef.current = taskTokens;
+  }, [taskTokens]);
 
   const projectGroups = useMemo(() => {
     const groups = new Map<string, { label: string; profiles: CodexProfile[] }>();
@@ -790,6 +1002,12 @@ export default function App() {
       if (settingsCloseTimerRef.current) {
         window.clearTimeout(settingsCloseTimerRef.current);
       }
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+      }
+      if (fileMentionTimerRef.current) {
+        window.clearTimeout(fileMentionTimerRef.current);
+      }
     };
   }, []);
 
@@ -813,6 +1031,28 @@ export default function App() {
       writeStoredUiState({ activeThreadId: activeThread.id });
     }
   }, [activeThread?.id]);
+
+  useEffect(() => {
+    const match = input.match(/(?:^|\s)@([^\s@]{1,80})$/);
+    const query = match?.[1] ?? "";
+    setFileMentionQuery(query);
+
+    if (fileMentionTimerRef.current) {
+      window.clearTimeout(fileMentionTimerRef.current);
+      fileMentionTimerRef.current = null;
+    }
+
+    if (!query || connection !== "connected" || !selectedProfileId) {
+      setFileMentionResults([]);
+      setFileMentionLoading(false);
+      return;
+    }
+
+    setFileMentionLoading(true);
+    fileMentionTimerRef.current = window.setTimeout(() => {
+      void searchFilesForMention(query);
+    }, 180);
+  }, [connection, input, selectedProfileId]);
 
   useEffect(() => {
     const closeTransientMenus = () => {
@@ -1032,12 +1272,265 @@ export default function App() {
     }
   }
 
+  function addLog(line: string) {
+    const stamp = new Intl.DateTimeFormat("ru", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    }).format(new Date());
+    setLogs((current) => [`${stamp} · ${line}`.trim(), ...current].filter(Boolean).slice(0, 80));
+  }
+
+  function projectApiBody(extra: Record<string, unknown> = {}) {
+    const profileId = selectedProfileIdRef.current;
+    return {
+      profileId,
+      password: profileId ? sessionPasswordsRef.current[profileId] || undefined : undefined,
+      ...extra
+    };
+  }
+
+  async function searchFilesForMention(query: string) {
+    try {
+      const response = await fetch("/api/project/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(projectApiBody({ query }))
+      });
+      const data = (await response.json()) as { files?: FileSearchResult[]; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "Не удалось найти файлы.");
+      }
+      setFileMentionResults(data.files || []);
+    } catch (mentionError) {
+      addLog(mentionError instanceof Error ? mentionError.message : "Ошибка поиска файлов.");
+      setFileMentionResults([]);
+    } finally {
+      setFileMentionLoading(false);
+    }
+  }
+
+  function applyFileMention(file: FileSearchResult) {
+    setInput((current) => current.replace(/@([^\s@]{1,80})$/, `@${file.path} `));
+    setFileMentionResults([]);
+    setFileMentionQuery("");
+  }
+
+  async function openProjectDiff(files: FileSummary[] = []) {
+    if (!selectedProfileIdRef.current) {
+      setProfileOpen(true);
+      return;
+    }
+
+    const cleanFiles = mergeFiles([], files);
+    setDiffPanel({ open: true, loading: true, files: cleanFiles });
+    addLog(cleanFiles.length ? `Открываю diff: ${cleanFiles.length} файлов` : "Открываю diff проекта");
+
+    try {
+      const response = await fetch("/api/project/diff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(projectApiBody({ files: cleanFiles.map((file) => file.path) }))
+      });
+      const data = (await response.json()) as { diff?: ProjectDiff; error?: string };
+      if (!response.ok || !data.diff) {
+        throw new Error(data.error || "Не удалось прочитать diff.");
+      }
+      setDiffPanel({ open: true, loading: false, files: cleanFiles, result: data.diff });
+    } catch (diffError) {
+      setDiffPanel({
+        open: true,
+        loading: false,
+        files: cleanFiles,
+        error: diffError instanceof Error ? diffError.message : "Не удалось прочитать diff."
+      });
+    }
+  }
+
+  async function openProjectHealth() {
+    if (!selectedProfileIdRef.current) {
+      setProfileOpen(true);
+      return;
+    }
+
+    setHealthPanel({ open: true, loading: true });
+    addLog("Проверяю проект");
+
+    try {
+      const response = await fetch("/api/project/health", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(projectApiBody())
+      });
+      const data = (await response.json()) as { health?: ProjectHealth; error?: string };
+      if (!response.ok || !data.health) {
+        throw new Error(data.error || "Не удалось проверить проект.");
+      }
+      setHealthPanel({ open: true, loading: false, result: data.health });
+    } catch (healthError) {
+      setHealthPanel({
+        open: true,
+        loading: false,
+        error: healthError instanceof Error ? healthError.message : "Не удалось проверить проект."
+      });
+    }
+  }
+
+  function openProjectCommands(command = "") {
+    setCommandRunner({
+      open: true,
+      running: false,
+      command: command || defaultQuickCommands(selectedProfileRef.current)[0] || "git status --short"
+    });
+  }
+
+  async function runProjectCommand(command = commandRunner.command) {
+    const clean = command.trim();
+    if (!clean) {
+      setCommandRunner((current) => ({ ...current, error: "Команда пустая." }));
+      return;
+    }
+
+    setCommandRunner((current) => ({
+      ...current,
+      command: clean,
+      running: true,
+      result: undefined,
+      error: undefined
+    }));
+    addLog(`Команда проекта: ${clean}`);
+
+    try {
+      const response = await fetch("/api/project/command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(projectApiBody({ command: clean }))
+      });
+      const data = (await response.json()) as { result?: ProjectCommandResult; error?: string };
+      if (!response.ok || !data.result) {
+        throw new Error(data.error || "Команда не выполнилась.");
+      }
+      setCommandRunner((current) => ({ ...current, running: false, result: data.result }));
+    } catch (commandError) {
+      setCommandRunner((current) => ({
+        ...current,
+        running: false,
+        error: commandError instanceof Error ? commandError.message : "Команда не выполнилась."
+      }));
+    }
+  }
+
+  function resetTaskCollectors() {
+    taskCommandsRef.current = [];
+    taskFilesRef.current = [];
+    setLastTaskSummary(null);
+  }
+
+  function startTask(text: string) {
+    const clean = text.trim();
+    if (!clean || connectionRef.current !== "connected") return;
+
+    const profileId = selectedProfileIdRef.current;
+    const threadId = activeThreadRef.current?.id;
+    resetTaskCollectors();
+    setError("");
+    setBusy(true);
+    const startedAt = Date.now();
+    setTaskStartedAt(startedAt);
+    taskStartedAtRef.current = startedAt;
+    setTaskCompletedAt(null);
+    setTaskActivity("Отправляю задачу");
+    setTaskTokens(null);
+    taskTokensRef.current = null;
+    writeStoredActiveTask({
+      profileId,
+      threadId,
+      title: previewText(clean),
+      startedAt
+    });
+    setRecoveryTask(readStoredActiveTask());
+    setMessages((current) => [
+      ...current,
+      { id: `local-${Date.now()}`, role: "user", text: clean }
+    ]);
+    send({
+      type: "sendMessage",
+      threadId,
+      text: clean
+    });
+  }
+
+  function enqueueTask(text: string) {
+    const clean = text.trim();
+    if (!clean) return;
+    setTaskQueue((current) => [
+      ...current,
+      { id: `queue-${Date.now()}-${current.length}`, text: clean, createdAt: Date.now() }
+    ]);
+    addLog("Задача добавлена в очередь");
+  }
+
+  function runNextQueuedTask() {
+    const [next] = taskQueueRef.current;
+    if (!next) return;
+    setTaskQueue((current) => current.filter((item) => item.id !== next.id));
+    startTask(next.text);
+  }
+
+  function scheduleReconnect(reason: string) {
+    if (manualDisconnectRef.current || isReconnectPaused) return;
+    const profileId = selectedProfileIdRef.current;
+    if (!profileId || reconnectAttempt >= 5) return;
+    const nextAttempt = reconnectAttempt + 1;
+    setReconnectAttempt(nextAttempt);
+    addLog(`${reason}. Переподключение ${nextAttempt}/5`);
+    if (reconnectTimerRef.current) {
+      window.clearTimeout(reconnectTimerRef.current);
+    }
+    reconnectTimerRef.current = window.setTimeout(() => {
+      connectProject(profileId);
+    }, Math.min(1000 + nextAttempt * 1000, 6000));
+  }
+
+  function stopReconnect() {
+    setReconnectPaused(true);
+    if (reconnectTimerRef.current) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }
+
   function handleServerMessage(message: ServerMessage) {
     if (message.type === "connection") {
+      const previousConnection = connectionRef.current;
       setConnection(message.status);
+      connectionRef.current = message.status;
       setCodexStatus(message.status);
+      addLog(
+        message.status === "connected"
+          ? `Подключено: ${message.profile ? projectTitleOf(message.profile) : "проект"}`
+          : message.status === "connecting"
+            ? "Подключение к проекту"
+            : "Соединение закрыто"
+      );
       if (message.status !== "connected") {
         setLoadingThreadId("");
+      }
+      if (message.status === "connected") {
+        manualDisconnectRef.current = false;
+        setReconnectAttempt(0);
+        setReconnectPaused(false);
+        if (reconnectTimerRef.current) {
+          window.clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = null;
+        }
+      }
+      if (
+        message.status === "idle" &&
+        previousConnection === "connected" &&
+        !manualDisconnectRef.current
+      ) {
+        scheduleReconnect("Соединение потеряно");
       }
       if (
         message.status === "connected" &&
@@ -1060,6 +1553,8 @@ export default function App() {
 
     if (message.type === "codexCli") {
       setCliPhase(message.phase);
+      if (message.phase === "checked") addLog("Проверка Codex CLI завершена");
+      if (message.phase === "updated") addLog("Установка/обновление Codex CLI завершено");
       if (message.profileId) {
         setCliProfileId(message.profileId);
       }
@@ -1071,6 +1566,7 @@ export default function App() {
 
     if (message.type === "threads") {
       setThreads(message.result.data || []);
+      addLog(`Прочитано чатов: ${message.result.data?.length ?? 0}`);
       return;
     }
 
@@ -1080,6 +1576,7 @@ export default function App() {
       setLoadingThreadId("");
       setOpenStepGroups({});
       setBusy(false);
+      addLog(`Открыт чат: ${displayTitleOf(message.result.thread, threadMetadata[message.result.thread.id])}`);
       setThreads((current) => {
         const exists = current.some((thread) => thread.id === message.result.thread.id);
         if (exists) {
@@ -1099,11 +1596,9 @@ export default function App() {
         current === message.threadId ? "" : current
       );
       if (message.archiveError) {
-        setLogs((current) =>
-          [`Чат скрыт локально. Архив Codex: ${message.archiveError}`, ...current]
-            .filter(Boolean)
-            .slice(0, 20)
-        );
+        addLog(`Чат удален локально. Codex: ${message.archiveError}`);
+      } else {
+        addLog(message.archived ? "Чат архивирован" : "Чат удален");
       }
       return;
     }
@@ -1114,12 +1609,16 @@ export default function App() {
     }
 
     if (message.type === "log") {
-      setLogs((current) => [message.line.trim(), ...current].filter(Boolean).slice(0, 20));
+      addLog(message.line.trim());
       return;
     }
 
     if (message.type === "error") {
       setError(friendlyErrorMessage(message.message));
+      if (/Codex CLI не найден|Profile not found|auth/i.test(message.message)) {
+        setReconnectPaused(true);
+      }
+      addLog(`Ошибка: ${message.message}`);
       setBusy(false);
       setLoadingThreadId("");
       return;
@@ -1156,9 +1655,11 @@ export default function App() {
     if (method === "turn/started") {
       setBusy(true);
       setTaskStartedAt((current) => current ?? Date.now());
+      taskStartedAtRef.current = taskStartedAtRef.current ?? Date.now();
       setTaskCompletedAt(null);
       setTaskActivity("Начинаю задачу");
       setTaskTokens((current) => mergeTokenStats(current, extractTokenStats(params)));
+      resetTaskCollectors();
     }
 
     if (method === "item/started" && params.item) {
@@ -1209,18 +1710,43 @@ export default function App() {
         setTaskActivity(activityLabelForMessage(next));
         setMessages((current) => upsertMessage(current, next));
       }
+      const command = commandSummaryFromItem(params.item);
+      if (command) {
+        taskCommandsRef.current = [...taskCommandsRef.current, command];
+      }
+      const files = fileSummariesFromItem(params.item);
+      if (files.length > 0) {
+        taskFilesRef.current = mergeFiles(taskFilesRef.current, files);
+      }
       setTaskTokens((current) => mergeTokenStats(current, extractTokenStats(params)));
     }
 
     if (method === "turn/completed") {
+      const completedAt = Date.now();
+      const startedAt = taskStartedAtRef.current ?? completedAt;
+      const tokens = mergeTokenStats(taskTokensRef.current, extractTokenStats(params));
       setBusy(false);
-      setTaskCompletedAt(Date.now());
+      setTaskCompletedAt(completedAt);
       setTaskActivity("Готово");
-      setTaskTokens((current) => mergeTokenStats(current, extractTokenStats(params)));
+      setTaskTokens(tokens);
+      setLastTaskSummary({
+        id: `summary-${completedAt}`,
+        title: activeThreadTitle || "Задача",
+        elapsedMs: completedAt - startedAt,
+        tokens,
+        files: taskFilesRef.current,
+        commands: taskCommandsRef.current,
+        tests: taskCommandsRef.current.filter((command) => isTestLikeCommand(command.command)),
+        completedAt
+      });
+      writeStoredActiveTask(null);
+      setRecoveryTask(null);
+      addLog("Задача завершена");
       notifyCompletion();
       if (preferencesRef.current.autoRefreshHistory) {
         send({ type: "listThreads", searchTerm: searchRef.current });
       }
+      window.setTimeout(runNextQueuedTask, 400);
     }
   }
 
@@ -1229,6 +1755,8 @@ export default function App() {
       setProfileOpen(true);
       return;
     }
+    manualDisconnectRef.current = false;
+    setReconnectPaused(false);
     setSelectedProfileId(profileId);
     setError("");
     setMessages([]);
@@ -1239,6 +1767,7 @@ export default function App() {
     setOpenStepGroups({});
     didRestoreThreadRef.current = false;
     setConnection("connecting");
+    addLog("Подключаюсь к проекту");
     send({
       type: "connect",
       profileId,
@@ -1265,7 +1794,7 @@ export default function App() {
   function openThreadContextMenu(event: MouseEvent, thread: CodexThread) {
     event.preventDefault();
     const menuWidth = 220;
-    const menuHeight = 142;
+    const menuHeight = 286;
     setThreadMenu({
       thread,
       x: Math.min(event.clientX, window.innerWidth - menuWidth - 8),
@@ -1350,10 +1879,15 @@ export default function App() {
   }
 
   function disconnect() {
+    manualDisconnectRef.current = true;
+    stopReconnect();
     send({ type: "disconnect" });
     setConnection("idle");
     setBusy(false);
     setLoadingThreadId("");
+    writeStoredActiveTask(null);
+    setRecoveryTask(null);
+    addLog("Отключено вручную");
   }
 
   function selectThread(thread: CodexThread) {
@@ -1362,6 +1896,7 @@ export default function App() {
     setLoadingThreadId(thread.id);
     setOpenStepGroups({});
     setTaskCompletedAt(null);
+    setLastTaskSummary(null);
     send({ type: "readThread", threadId: thread.id });
   }
 
@@ -1371,6 +1906,7 @@ export default function App() {
     setLoadingThreadId("");
     setOpenStepGroups({});
     setTaskCompletedAt(null);
+    setLastTaskSummary(null);
     send({ type: "newThread" });
   }
 
@@ -1537,27 +2073,132 @@ export default function App() {
     }
   }
 
+  function submitTaskOrQueue(text: string) {
+    if (isBusy) {
+      enqueueTask(text);
+      return;
+    }
+    startTask(text);
+  }
+
+  function archiveActiveThread() {
+    if (!activeThread) return;
+    send({ type: "archiveThread", threadId: activeThread.id });
+    setThreads((current) => current.filter((thread) => thread.id !== activeThread.id));
+    setActiveThread(null);
+    setMessages([]);
+  }
+
+  function forkActiveThread() {
+    if (!activeThread) return;
+    send({ type: "forkThread", threadId: activeThread.id });
+    addLog("Создаю форк чата");
+  }
+
+  function compactActiveThread() {
+    if (!activeThread) return;
+    send({ type: "compactThread", threadId: activeThread.id });
+    setBusy(true);
+    setTaskActivity("Сжимаю контекст");
+    addLog("Сжимаю контекст чата");
+  }
+
+  function handleSlashInput(text: string) {
+    if (!text.startsWith("/")) return false;
+    const [rawCommand, ...rest] = text.slice(1).trim().split(/\s+/);
+    const command = rawCommand.toLowerCase();
+    const argument = rest.join(" ").trim();
+
+    if (!command) return false;
+
+    switch (command) {
+      case "diff":
+        void openProjectDiff();
+        return true;
+      case "check":
+      case "health":
+      case "status":
+        void openProjectHealth();
+        return true;
+      case "commands":
+      case "cmd":
+        openProjectCommands(argument);
+        return true;
+      case "journal":
+      case "logs":
+        setJournalOpen(true);
+        return true;
+      case "settings":
+        openSettings();
+        return true;
+      case "new":
+      case "clear":
+        newThread();
+        return true;
+      case "fork":
+        forkActiveThread();
+        return true;
+      case "archive":
+        archiveActiveThread();
+        return true;
+      case "delete":
+        if (activeThread) setDeletingThread(activeThread);
+        return true;
+      case "compact":
+        compactActiveThread();
+        return true;
+      case "model":
+        setComposerMenuOpen(true);
+        setOpenComposerSubmenu("model");
+        return true;
+      case "permissions":
+        if (selectedProfile) openProfile(selectedProfile);
+        return true;
+      case "mention":
+        setInput("@");
+        return true;
+      case "review":
+        submitTaskOrQueue(argument || "Проведи code review текущих изменений. Покажи только важные баги, риски и недостающие проверки.");
+        return true;
+      case "doctor":
+        openProjectCommands(`${selectedProfile?.codexBin || "codex"} doctor --summary --ascii`);
+        return true;
+      case "features":
+        openProjectCommands(`${selectedProfile?.codexBin || "codex"} features list`);
+        return true;
+      case "mcp":
+        submitTaskOrQueue("Покажи доступные MCP серверы и инструменты для этой сессии. Если чего-то не хватает, предложи настройку.");
+        return true;
+      case "plugins":
+        submitTaskOrQueue("Покажи установленные плагины Codex и что из них полезно для текущего проекта.");
+        return true;
+      case "skills":
+        submitTaskOrQueue("Покажи релевантные skills Codex для текущей задачи и как их лучше использовать.");
+        return true;
+      case "goal":
+        submitTaskOrQueue(argument ? `/goal ${argument}` : "Покажи текущую цель задачи и прогресс.");
+        return true;
+      default:
+        return false;
+    }
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault();
     const text = input.trim();
     if (!text || connection !== "connected") return;
 
-    setError("");
     setInput("");
-    setBusy(true);
-    setTaskStartedAt(Date.now());
-    setTaskCompletedAt(null);
-    setTaskActivity("Отправляю задачу");
-    setTaskTokens(null);
-    setMessages((current) => [
-      ...current,
-      { id: `local-${Date.now()}`, role: "user", text }
-    ]);
-    send({
-      type: "sendMessage",
-      threadId: activeThread?.id,
-      text
-    });
+    if (handleSlashInput(text)) {
+      return;
+    }
+
+    if (isBusy) {
+      enqueueTask(text);
+      return;
+    }
+
+    startTask(text);
   }
 
   function openProfile(profile?: CodexProfile, template?: CodexProfile) {
@@ -1573,6 +2214,7 @@ export default function App() {
           codexBin: profile.codexBin,
           model: profile.model,
           updateCommand: profile.updateCommand,
+          quickCommands: profile.quickCommands ?? [],
           approvalPolicy: profile.approvalPolicy,
           sandboxMode: profile.sandboxMode,
           password: sessionPasswords[profile.id] ?? ""
@@ -1588,6 +2230,7 @@ export default function App() {
             codexBin: template.codexBin,
             model: template.model,
             updateCommand: template.updateCommand,
+            quickCommands: template.quickCommands ?? [],
             approvalPolicy: template.approvalPolicy,
             sandboxMode: template.sandboxMode,
             password: sessionPasswords[template.id] ?? ""
@@ -1618,6 +2261,8 @@ export default function App() {
     }
     await loadProfiles();
     setSelectedProfileId(data.profile.id);
+    writeRecentProjectPath(data.profile.projectPath);
+    setRecentProjectPaths(readRecentProjectPaths());
     if (password) {
       setSessionPasswords((current) => ({
         ...current,
@@ -1641,7 +2286,38 @@ export default function App() {
     send({ type: "listThreads", searchTerm: nextSearch });
   }
 
+  const quickCommands = useMemo(() => defaultQuickCommands(selectedProfile), [selectedProfile]);
+  const slashCommandActions = useMemo(
+    () => [
+      { command: "/diff", label: "Показать изменения" },
+      { command: "/status", label: "Проверить проект" },
+      { command: "/review", label: "Code review изменений" },
+      { command: "/compact", label: "Сжать контекст" },
+      { command: "/fork", label: "Сделать копию чата" },
+      { command: "/archive", label: "Архивировать чат" },
+      { command: "/delete", label: "Удалить чат" },
+      { command: "/new", label: "Новый чат" },
+      { command: "/commands", label: "Команды проекта" },
+      { command: "/doctor", label: "Диагностика Codex" },
+      { command: "/features", label: "Флаги Codex" },
+      { command: "/mention", label: "Упомянуть файл" },
+      { command: "/model", label: "Модель и рассуждение" },
+      { command: "/permissions", label: "Доступ и подтверждения" },
+      { command: "/mcp", label: "MCP" },
+      { command: "/plugins", label: "Плагины" },
+      { command: "/skills", label: "Skills" },
+      { command: "/journal", label: "Журнал событий" }
+    ],
+    []
+  );
+  const slashQuery = input.startsWith("/") ? input.slice(1).trim().toLowerCase() : "";
+  const visibleSlashCommands = input.startsWith("/")
+    ? slashCommandActions
+        .filter((item) => `${item.command} ${item.label}`.toLowerCase().includes(slashQuery))
+        .slice(0, 8)
+    : [];
   const canSend = connection === "connected" && input.trim().length > 0;
+  const sendButtonLabel = isBusy ? "В очередь" : "Отправить";
   const isCliWorking = cliPhase === "checking" || cliPhase === "updating";
   const isCodexMissing = Boolean(selectedCliStatus?.missing);
   const cliVersionLabel = isCodexMissing
@@ -1704,6 +2380,53 @@ export default function App() {
         run: () => refreshThreads()
       },
       {
+        id: "health",
+        label: "Проверить проект",
+        detail: "git, scripts, проверки, логи",
+        icon: <Check size={15} />,
+        disabled: !selectedProfileId,
+        run: () => void openProjectHealth()
+      },
+      {
+        id: "diff",
+        label: "Изменения",
+        detail: "открыть встроенный diff",
+        icon: <FileText size={15} />,
+        disabled: !selectedProfileId,
+        run: () => void openProjectDiff()
+      },
+      {
+        id: "project-commands",
+        label: "Команды проекта",
+        detail: quickCommands.slice(0, 2).join(" · ") || "быстрые команды",
+        icon: <Terminal size={15} />,
+        disabled: !selectedProfileId,
+        run: () => openProjectCommands()
+      },
+      {
+        id: "doctor",
+        label: "Диагностика Codex",
+        detail: "codex doctor --summary",
+        icon: <Check size={15} />,
+        disabled: !selectedProfileId,
+        run: () => openProjectCommands(`${selectedProfile?.codexBin || "codex"} doctor --summary --ascii`)
+      },
+      {
+        id: "features",
+        label: "Флаги Codex",
+        detail: "codex features list",
+        icon: <SlidersHorizontal size={15} />,
+        disabled: !selectedProfileId,
+        run: () => openProjectCommands(`${selectedProfile?.codexBin || "codex"} features list`)
+      },
+      {
+        id: "journal",
+        label: "Журнал событий",
+        detail: logs[0] || "тихая диагностика",
+        icon: <History size={15} />,
+        run: () => setJournalOpen(true)
+      },
+      {
         id: "reconnect",
         label: "Переподключиться",
         detail: selectedProfile ? serverLabelOf(selectedProfile) : "нет проекта",
@@ -1728,7 +2451,7 @@ export default function App() {
         run: disconnect
       }
     ],
-    [connection, isCliWorking, selectedProfile, selectedProfileId]
+    [connection, isCliWorking, logs, quickCommands, selectedProfile, selectedProfileId]
   );
   const filteredCommandActions = useMemo(() => {
     const query = commandQuery.trim().toLowerCase();
@@ -1955,6 +2678,14 @@ export default function App() {
           </div>
         )}
 
+        {connection !== "connected" && reconnectAttempt > 0 && !isReconnectPaused && (
+          <div className="reconnect-banner">
+            <Loader2 size={15} className="spin" />
+            <span>Соединение потеряно · переподключаюсь {reconnectAttempt}/5</span>
+            <button type="button" onClick={stopReconnect}>Остановить</button>
+          </div>
+        )}
+
         <div className={loadingThreadId || messages.length === 0 ? "messages empty" : "messages"}>
           {loadingThreadId ? (
             <div className="thread-loading-state">
@@ -1979,6 +2710,29 @@ export default function App() {
                 <button type="button" className="secondary-button" onClick={openSettings}>
                   <SlidersHorizontal size={15} />
                   Настройки
+                </button>
+              </div>
+            </div>
+          ) : recoveryTask && connection !== "connected" && recoveryTask.profileId === selectedProfileId ? (
+            <div className="bootstrap-card recovery-card">
+              <History size={28} />
+              <h2>Есть незавершенная задача</h2>
+              <p>{recoveryTask.title}</p>
+              <div className="bootstrap-actions">
+                <button type="button" className="primary-button" onClick={() => connectProject(recoveryTask.profileId)}>
+                  <RefreshCw size={15} />
+                  Переподключиться
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    writeStoredActiveTask(null);
+                    setRecoveryTask(null);
+                  }}
+                >
+                  <X size={15} />
+                  Скрыть
                 </button>
               </div>
             </div>
@@ -2069,10 +2823,16 @@ export default function App() {
                         </div>
                         <div className="file-summary-list">
                           {turn.files.map((file) => (
-                            <span key={file.key} className="file-summary-chip" title={file.path}>
+                            <button
+                              key={file.key}
+                              type="button"
+                              className="file-summary-chip"
+                              title={file.path}
+                              onClick={() => void openProjectDiff(turn.files)}
+                            >
                               {file.operation && <small>{file.operation}</small>}
                               {file.label}
-                            </span>
+                            </button>
                           ))}
                         </div>
                       </div>
@@ -2084,6 +2844,48 @@ export default function App() {
           )}
           {!loadingThreadId && messages.length > 0 && <div ref={endRef} />}
         </div>
+
+        {lastTaskSummary && (
+          <section className="task-summary-card">
+            <div className="task-summary-head">
+              <div>
+                <Check size={15} />
+                <strong>Итог задачи</strong>
+              </div>
+              <small>{formatDate(Math.floor(lastTaskSummary.completedAt / 1000))}</small>
+            </div>
+            <div className="task-summary-grid">
+              <span>время <strong>{formatDuration(lastTaskSummary.elapsedMs)}</strong></span>
+              <span>{formatTokens(lastTaskSummary.tokens)}</span>
+              <span>команды <strong>{lastTaskSummary.commands.length}</strong></span>
+              <span>проверки <strong>{lastTaskSummary.tests.length || "--"}</strong></span>
+            </div>
+            {lastTaskSummary.files.length > 0 && (
+              <div className="task-summary-files">
+                <button type="button" onClick={() => void openProjectDiff(lastTaskSummary.files)}>
+                  <FileText size={14} />
+                  Файлы {lastTaskSummary.files.length}
+                </button>
+                {lastTaskSummary.files.slice(0, 5).map((file) => (
+                  <button key={file.key} type="button" onClick={() => void openProjectDiff([file])}>
+                    {file.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {lastTaskSummary.commands.length > 0 && (
+              <details className="task-summary-details">
+                <summary>Команды</summary>
+                {lastTaskSummary.commands.map((command, index) => (
+                  <code key={`${command.command}-${index}`}>
+                    {command.command}
+                    {command.exitCode !== undefined && command.exitCode !== null ? ` · ${command.exitCode}` : ""}
+                  </code>
+                ))}
+              </details>
+            )}
+          </section>
+        )}
 
         {showTaskStatus && (
           <div className={`task-status ${isBusy ? "working" : "done"}`}>
@@ -2103,8 +2905,53 @@ export default function App() {
           </div>
         )}
 
+        {taskQueue.length > 0 && (
+          <div className="queue-status">
+            <History size={15} />
+            <span>В очереди {taskQueue.length}</span>
+            <button type="button" onClick={() => setTaskQueue([])}>Очистить</button>
+          </div>
+        )}
+
         <form className="composer" onSubmit={submit}>
           <div className="composer-box">
+            {visibleSlashCommands.length > 0 && (
+              <div className="composer-suggest slash-suggest">
+                {visibleSlashCommands.map((item) => (
+                  <button
+                    key={item.command}
+                    type="button"
+                    onClick={() => {
+                      if (item.command !== "/mention") {
+                        handleSlashInput(item.command);
+                        setInput("");
+                      } else {
+                        setInput("@");
+                      }
+                    }}
+                  >
+                    <code>{item.command}</code>
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {(fileMentionResults.length > 0 || isFileMentionLoading) && fileMentionQuery && (
+              <div className="composer-suggest mention-suggest">
+                {isFileMentionLoading ? (
+                  <span className="suggest-loading"><Loader2 size={14} className="spin" /> Ищу файлы</span>
+                ) : (
+                  fileMentionResults.map((file) => (
+                    <button key={file.path} type="button" onClick={() => applyFileMention(file)}>
+                      <FileText size={14} />
+                      <span>{file.path}</span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
@@ -2244,11 +3091,16 @@ export default function App() {
               </div>
 
               {isBusy ? (
-                <button type="button" className="send-button stop" onClick={() => send({ type: "interrupt" })} title="Остановить">
-                  <Square size={15} />
-                </button>
+                <>
+                  <button className="send-button queue" disabled={!canSend} title={sendButtonLabel}>
+                    <ArrowUp size={15} />
+                  </button>
+                  <button type="button" className="send-button stop" onClick={() => send({ type: "interrupt" })} title="Остановить">
+                    <Square size={15} />
+                  </button>
+                </>
               ) : (
-                <button className="send-button" disabled={!canSend} title="Отправить">
+                <button className="send-button" disabled={!canSend} title={sendButtonLabel}>
                   <ArrowUp size={17} />
                 </button>
               )}
@@ -2381,6 +3233,11 @@ export default function App() {
                   <button type="button" onClick={() => void loadDirectories("~")}>~</button>
                   <button type="button" onClick={() => void loadDirectories("/var/www")}>/var/www</button>
                   <button type="button" onClick={() => void loadDirectories("/home")}>/home</button>
+                  {recentProjectPaths.slice(0, 4).map((recentPath) => (
+                    <button key={recentPath} type="button" onClick={() => void loadDirectories(recentPath)}>
+                      {recentPath}
+                    </button>
+                  ))}
                 </div>
 
                 {directoryError && <div className="folder-error">{directoryError}</div>}
@@ -2436,6 +3293,11 @@ export default function App() {
                           >
                             <Folder size={15} />
                             <span>{entry.name}</span>
+                            <small className={entry.isGit || entry.hasPackageJson ? "folder-badges" : "folder-badges empty"}>
+                              {entry.isGit && "git"}
+                              {entry.isGit && entry.hasPackageJson && " · "}
+                              {entry.hasPackageJson && "app"}
+                            </small>
                           </button>
                         ))
                       ) : (
@@ -2498,6 +3360,19 @@ export default function App() {
                   placeholder={preferences.defaultUpdateCommand}
                   autoComplete="off"
                 />
+              </label>
+
+              <label>
+                Быстрые команды проекта
+                <textarea
+                  value={(draft.quickCommands ?? []).join("\n")}
+                  onChange={(event) => updateDraft({
+                    quickCommands: event.target.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+                  })}
+                  placeholder={"git status --short\nnpm test\nnpm run build"}
+                  rows={3}
+                />
+                <small>По одной команде на строку. Запускаются из меню проекта.</small>
               </label>
 
               <div className="two-fields">
@@ -2593,8 +3468,8 @@ export default function App() {
               </button>
             </div>
             <p className="confirm-copy">
-              Чат исчезнет из списка. Если текущая версия Codex поддерживает архивирование,
-              он также будет архивирован на сервере.
+              Чат будет удален из локального списка и Codex-хранилища на сервере.
+              Действие нельзя отменить.
             </p>
             <div className="modal-actions">
               <button type="button" className="secondary-button" onClick={() => setDeletingThread(null)}>
@@ -2606,6 +3481,168 @@ export default function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {diffPanel.open && renderLayer(
+        <div className="modal-backdrop panel-backdrop" role="presentation">
+          <section className="profile-modal wide-panel">
+            <div className="modal-head">
+              <div>
+                <h2>Изменения</h2>
+                <p>{diffPanel.files.length ? `${diffPanel.files.length} файлов` : selectedProfile?.projectPath}</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setDiffPanel({ open: false, loading: false, files: [] })}>
+                <X size={16} />
+              </button>
+            </div>
+            {diffPanel.loading ? (
+              <div className="panel-loading">
+                <Loader2 size={18} className="spin" />
+                Читаю diff
+              </div>
+            ) : diffPanel.error ? (
+              <div className="folder-error">{diffPanel.error}</div>
+            ) : (
+              <div className="diff-viewer">
+                <section>
+                  <h3>Статус</h3>
+                  <pre>{diffPanel.result?.status || "Изменений нет."}</pre>
+                </section>
+                <section>
+                  <h3>Diff</h3>
+                  <pre>{diffPanel.result?.diff || "Diff пустой."}</pre>
+                </section>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {healthPanel.open && renderLayer(
+        <div className="modal-backdrop panel-backdrop" role="presentation">
+          <section className="profile-modal wide-panel">
+            <div className="modal-head">
+              <div>
+                <h2>Проверка проекта</h2>
+                <p>{selectedProfile?.projectPath || "Проект не выбран"}</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setHealthPanel({ open: false, loading: false })}>
+                <X size={16} />
+              </button>
+            </div>
+            {healthPanel.loading ? (
+              <div className="panel-loading">
+                <Loader2 size={18} className="spin" />
+                Проверяю проект
+              </div>
+            ) : healthPanel.error ? (
+              <div className="folder-error">{healthPanel.error}</div>
+            ) : healthPanel.result && (
+              <>
+                <div className="health-grid">
+                  <div><span>Git</span><strong>{healthPanel.result.isGit ? "есть" : "нет"}</strong></div>
+                  <div><span>Изменения</span><strong>{healthPanel.result.dirtyFiles || "--"}</strong></div>
+                  <div><span>package.json</span><strong>{healthPanel.result.packageJson ? "есть" : "нет"}</strong></div>
+                  <div><span>Пакетный менеджер</span><strong>{healthPanel.result.packageManager}</strong></div>
+                  <div><span>Проверки</span><strong>{healthPanel.result.availableChecks.length || "--"}</strong></div>
+                  <div><span>Скрипты</span><strong>{healthPanel.result.scripts.length || "--"}</strong></div>
+                </div>
+                <div className="health-actions">
+                  <button type="button" className="secondary-button" onClick={() => void openProjectDiff()}>
+                    <FileText size={15} />
+                    Diff
+                  </button>
+                  {healthPanel.result.availableChecks.slice(0, 4).map((script) => (
+                    <button key={script} type="button" className="secondary-button" onClick={() => openProjectCommands(packageScriptCommand(healthPanel.result?.packageManager || "npm", script))}>
+                      <Terminal size={15} />
+                      {script}
+                    </button>
+                  ))}
+                </div>
+                <div className="health-sections">
+                  {healthPanel.result.sections.map((section) => (
+                    <details key={section.title} open={["git", "checks"].includes(section.title)}>
+                      <summary>{section.title}</summary>
+                      <pre>{section.body || "пусто"}</pre>
+                    </details>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+        </div>
+      )}
+
+      {commandRunner.open && renderLayer(
+        <div className="modal-backdrop panel-backdrop" role="presentation">
+          <section className="profile-modal command-runner-panel">
+            <div className="modal-head">
+              <div>
+                <h2>Команды проекта</h2>
+                <p>{selectedProfile?.projectPath || "Проект не выбран"}</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setCommandRunner({ open: false, running: false, command: "" })}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="quick-command-list">
+              {quickCommands.map((command) => (
+                <button key={command} type="button" onClick={() => void runProjectCommand(command)}>
+                  <Terminal size={14} />
+                  {command}
+                </button>
+              ))}
+            </div>
+            <label>
+              Команда
+              <input
+                value={commandRunner.command}
+                onChange={(event) => setCommandRunner((current) => ({ ...current, command: event.target.value }))}
+                placeholder="git status --short"
+                autoComplete="off"
+              />
+            </label>
+            <div className="modal-actions">
+              <button type="button" className="primary-button" onClick={() => void runProjectCommand()} disabled={commandRunner.running}>
+                {commandRunner.running ? <Loader2 size={15} className="spin" /> : <Terminal size={15} />}
+                Запустить
+              </button>
+            </div>
+            {commandRunner.error && <div className="folder-error">{commandRunner.error}</div>}
+            {commandRunner.result && (
+              <div className="command-result">
+                <div>
+                  <span>exit code</span>
+                  <strong>{commandRunner.result.exitCode ?? "--"}</strong>
+                </div>
+                <pre>{[commandRunner.result.stdout, commandRunner.result.stderr].filter(Boolean).join("\n") || "Команда завершилась без вывода."}</pre>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {isJournalOpen && renderLayer(
+        <div className="modal-backdrop panel-backdrop" role="presentation">
+          <section className="profile-modal journal-panel">
+            <div className="modal-head">
+              <div>
+                <h2>Журнал событий</h2>
+                <p>Тихая диагностика приложения</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setJournalOpen(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="journal-list">
+              {logs.length > 0 ? logs.map((line, index) => (
+                <code key={`${line}-${index}`}>{line}</code>
+              )) : (
+                <span>Событий пока нет.</span>
+              )}
+            </div>
+          </section>
         </div>
       )}
 
@@ -2678,12 +3715,49 @@ export default function App() {
             type="button"
             role="menuitem"
             onClick={() => {
+              const targetThread = threadMenu.thread;
+              setThreadMenu(null);
+              send({ type: "forkThread", threadId: targetThread.id });
+            }}
+          >
+            <MessageSquare size={15} />
+            Копия чата
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              const targetThread = threadMenu.thread;
+              setThreadMenu(null);
+              send({ type: "compactThread", threadId: targetThread.id });
+            }}
+          >
+            <History size={15} />
+            Сжать
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
               openRenameThread(threadMenu.thread);
               setThreadMenu(null);
             }}
           >
             <Pencil size={15} />
             Переименовать
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              const targetThread = threadMenu.thread;
+              setThreadMenu(null);
+              send({ type: "archiveThread", threadId: targetThread.id });
+              setThreads((current) => current.filter((thread) => thread.id !== targetThread.id));
+            }}
+          >
+            <Folder size={15} />
+            Архивировать
           </button>
           <button
             type="button"

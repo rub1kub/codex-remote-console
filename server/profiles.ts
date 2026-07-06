@@ -82,6 +82,15 @@ function cleanText(value: unknown, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
 }
 
+function cleanStringList(value: unknown, fallback: string[] = []) {
+  const source = Array.isArray(value) ? value : fallback;
+  return source
+    .map((item) => cleanText(item))
+    .filter(Boolean)
+    .filter((item, index, list) => list.indexOf(item) === index)
+    .slice(0, 20);
+}
+
 function cleanPort(value: unknown) {
   if (value === undefined || value === null || value === "") return undefined;
   const port = Number(value);
@@ -197,6 +206,7 @@ function normalizeProfile(input: ProfileInput, previous?: CodexProfile): CodexPr
     sandboxMode:
       input.sandboxMode ?? previous?.sandboxMode ?? "danger-full-access",
     updateCommand: cleanText(input.updateCommand, previous?.updateCommand ?? ""),
+    quickCommands: cleanStringList(input.quickCommands, previous?.quickCommands ?? []),
     createdAt: previous?.createdAt ?? timestamp,
     updatedAt: timestamp
   };

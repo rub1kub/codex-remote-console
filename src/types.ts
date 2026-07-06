@@ -15,6 +15,7 @@ export type CodexProfile = {
   approvalPolicy: ApprovalPolicy;
   sandboxMode: SandboxMode;
   updateCommand?: string;
+  quickCommands?: string[];
   createdAt: string;
   updatedAt: string;
 };
@@ -46,12 +47,46 @@ export type ThreadMetadata = {
 export type DirectoryEntry = {
   name: string;
   path: string;
+  isGit?: boolean;
+  hasPackageJson?: boolean;
 };
 
 export type DirectoryListing = {
   currentPath: string;
   parentPath?: string;
   entries: DirectoryEntry[];
+};
+
+export type ProjectCommandResult = {
+  command: string;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+};
+
+export type ProjectHealth = {
+  cwd: string;
+  isGit: boolean;
+  dirtyFiles: number;
+  packageJson: boolean;
+  packageManager: string;
+  scripts: string[];
+  availableChecks: string[];
+  sections: Array<{ title: string; body: string }>;
+  command: string;
+  exitCode: number | null;
+};
+
+export type ProjectDiff = {
+  status: string;
+  diff: string;
+  command: string;
+  exitCode: number | null;
+};
+
+export type FileSearchResult = {
+  path: string;
+  label: string;
 };
 
 export type CodexCliStatus = {

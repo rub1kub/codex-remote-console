@@ -265,6 +265,29 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
     return this.request("thread/archive", { threadId });
   }
 
+  async deleteThread(threadId: string) {
+    return this.request("thread/delete", { threadId });
+  }
+
+  async unarchiveThread(threadId: string) {
+    return this.request("thread/unarchive", { threadId });
+  }
+
+  async forkThread(threadId: string) {
+    const result = (await this.request("thread/fork", {
+      threadId,
+      ...buildThreadParams(this.profile)
+    })) as { thread?: { id?: string } };
+    if (result.thread?.id) {
+      this.activeThreadId = result.thread.id;
+    }
+    return result;
+  }
+
+  async compactThread(threadId: string) {
+    return this.request("thread/compact/start", { threadId });
+  }
+
   async startThread() {
     const result = (await this.request(
       "thread/start",

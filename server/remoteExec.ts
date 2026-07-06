@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readdir } from "node:fs/promises";
+import { access, readdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Client } from "ssh2";
@@ -9,10 +9,14 @@ import type {
   CodexProfile,
   ConnectionSecrets,
   DirectoryListInput,
-  DirectoryListing
+  DirectoryEntry,
+  DirectoryListing,
+  FileSearchResult,
+  ProjectDiff,
+  ProjectHealth
 } from "./types";
 
-type CommandResult = {
+export type CommandResult = {
   command: string;
   stdout: string;
   stderr: string;
@@ -143,6 +147,15 @@ function joinRemotePath(parent: string, name: string) {
   return `${parent.replace(/\/+$/, "")}/${name}`;
 }
 
+async function pathExists(value: string) {
+  try {
+    await access(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function buildDirectoryProbeProfile(input: DirectoryListInput): CodexProfile {
   const mode = input.mode === "local" ? "local" : "ssh";
   const sshTarget = cleanText(input.sshTarget);
@@ -172,35 +185,49 @@ async function listLocalDirectories(
 ): Promise<DirectoryListing> {
   const currentPath = expandLocalPath(profile.projectPath);
   const entries = await readdir(currentPath, { withFileTypes: true });
+  const directories = await Promise.all(
+    entries
+      .filter((entry) => entry.isDirectory())
+      .map(async (entry): Promise<DirectoryEntry> => {
+        const entryPath = path.join(currentPath, entry.name);
+        return {
+          name: entry.name,
+          path: entryPath,
+          isGit: await pathExists(path.join(entryPath, ".git")),
+          hasPackageJson: await pathExists(path.join(entryPath, "package.json"))
+        };
+      })
+  );
   return {
     currentPath,
     parentPath: parentOf(currentPath, "local"),
-    entries: entries
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => ({
-        name: entry.name,
-        path: path.join(currentPath, entry.name)
-      }))
-      .sort((left, right) => left.name.localeCompare(right.name))
+    entries: directories.sort((left, right) => left.name.localeCompare(right.name))
   };
 }
 
 const directoryListCommand = [
   'CURRENT="$(pwd -P)"',
   'printf "cwd=%s\\n" "$CURRENT"',
-  'for entry in "$CURRENT"/* "$CURRENT"/.[!.]* "$CURRENT"/..?*; do [ -d "$entry" ] || continue; name="${entry##*/}"; if [ "$name" = "." ] || [ "$name" = ".." ]; then continue; fi; printf "dir=%s\\n" "$name"; done | LC_ALL=C sort'
+  'for entry in "$CURRENT"/* "$CURRENT"/.[!.]* "$CURRENT"/..?*; do [ -d "$entry" ] || continue; name="${entry##*/}"; if [ "$name" = "." ] || [ "$name" = ".." ]; then continue; fi; git=0; pkg=0; [ -d "$entry/.git" ] && git=1; [ -f "$entry/package.json" ] && pkg=1; printf "dir=%s\\t%s\\t%s\\n" "$name" "$git" "$pkg"; done | LC_ALL=C sort'
 ].join("; ");
 
 function parseRemoteDirectoryListing(stdout: string): DirectoryListing {
   let currentPath = "";
-  const names: string[] = [];
+  const entries: DirectoryEntry[] = [];
 
   stdout.split(/\r?\n/).forEach((line) => {
     if (line.startsWith("cwd=")) {
       currentPath = line.slice(4);
     } else if (line.startsWith("dir=")) {
-      const name = line.slice(4);
-      if (name) names.push(name);
+      const [name, git, pkg] = line.slice(4).split("\t");
+      if (name) {
+        entries.push({
+          name,
+          path: joinRemotePath(currentPath, name),
+          isGit: git === "1",
+          hasPackageJson: pkg === "1"
+        });
+      }
     }
   });
 
@@ -211,10 +238,7 @@ function parseRemoteDirectoryListing(stdout: string): DirectoryListing {
   return {
     currentPath,
     parentPath: parentOf(currentPath, "ssh"),
-    entries: names.map((name) => ({
-      name,
-      path: joinRemotePath(currentPath, name)
-    }))
+    entries
   };
 }
 
@@ -359,6 +383,163 @@ export function runProfileCommand(
     return runSsh2Command(profile, secrets, command);
   }
   return runSystemSshCommand(profile, command);
+}
+
+function validateProjectCommand(command: string) {
+  const clean = command.trim();
+  if (!clean) {
+    throw new Error("Команда пустая.");
+  }
+  if (clean.length > 4000) {
+    throw new Error("Команда слишком длинная.");
+  }
+  if (clean.includes("\0")) {
+    throw new Error("Команда содержит недопустимый символ.");
+  }
+  return clean;
+}
+
+function parseSections(stdout: string) {
+  const sections: Array<{ title: string; body: string }> = [];
+  let current: { title: string; lines: string[] } | null = null;
+
+  for (const line of stdout.split(/\r?\n/)) {
+    if (line.startsWith("__CODEX_REMOTE_SECTION__ ")) {
+      if (current) {
+        sections.push({ title: current.title, body: current.lines.join("\n").trim() });
+      }
+      current = {
+        title: line.replace("__CODEX_REMOTE_SECTION__ ", "").trim(),
+        lines: []
+      };
+      continue;
+    }
+
+    if (current) {
+      current.lines.push(line);
+    }
+  }
+
+  if (current) {
+    sections.push({ title: current.title, body: current.lines.join("\n").trim() });
+  }
+
+  return sections;
+}
+
+function sectionBody(sections: Array<{ title: string; body: string }>, title: string) {
+  return sections.find((section) => section.title === title)?.body.trim() ?? "";
+}
+
+const projectHealthCommand = [
+  "set +e",
+  'section(){ printf "\\n__CODEX_REMOTE_SECTION__ %s\\n" "$1"; }',
+  "section cwd; pwd",
+  'section git; if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git status --short; else printf "not a git repository\\n"; fi',
+  'section package; if [ -f package.json ]; then node -e \'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json","utf8"));console.log("name="+(p.name||""));console.log("scripts="+Object.keys(p.scripts||{}).join(","));\' 2>/dev/null || printf "package.json found\\n"; else printf "package.json not found\\n"; fi',
+  'section package-manager; if [ -f pnpm-lock.yaml ]; then echo pnpm; elif [ -f yarn.lock ]; then echo yarn; elif [ -f bun.lockb ] || [ -f bun.lock ]; then echo bun; elif [ -f package-lock.json ]; then echo npm; else echo ""; fi',
+  'section tools; for tool in git node npm pnpm yarn bun python python3 rg; do command -v "$tool" >/dev/null 2>&1 && printf "%s " "$tool"; done; printf "\\n"',
+  'section checks; if [ -f package.json ]; then node -e \'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json","utf8"));const scripts=p.scripts||{};for(const key of Object.keys(scripts)){if(/^(test|lint|build|typecheck|check|ci)(:|$)/.test(key)) console.log(key)}\' 2>/dev/null; fi',
+  'section logs; find . -maxdepth 3 -type f \\( -name "*.log" -o -name "npm-debug.log*" -o -name "yarn-error.log*" \\) -not -path "./node_modules/*" -not -path "./.git/*" 2>/dev/null | head -5'
+].join("; ");
+
+export async function inspectProjectHealth(
+  profile: CodexProfile,
+  secrets: ConnectionSecrets
+): Promise<ProjectHealth> {
+  const result = await runProfileCommand(profile, secrets, projectHealthCommand);
+  const sections = parseSections(result.stdout);
+  const gitBody = sectionBody(sections, "git");
+  const packageBody = sectionBody(sections, "package");
+  const scriptsLine = packageBody
+    .split(/\r?\n/)
+    .find((line) => line.startsWith("scripts="));
+  const scripts = scriptsLine
+    ? scriptsLine.replace(/^scripts=/, "").split(",").map((item) => item.trim()).filter(Boolean)
+    : [];
+  const checksBody = sectionBody(sections, "checks");
+  const dirtyFiles = gitBody && !/not a git repository/i.test(gitBody)
+    ? gitBody.split(/\r?\n/).filter(Boolean).length
+    : 0;
+
+  return {
+    cwd: sectionBody(sections, "cwd") || profile.projectPath,
+    isGit: Boolean(gitBody) && !/not a git repository/i.test(gitBody),
+    dirtyFiles,
+    packageJson: Boolean(packageBody) && !/package\.json not found/i.test(packageBody),
+    packageManager: sectionBody(sections, "package-manager") || "не найден",
+    scripts,
+    availableChecks: checksBody.split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
+    sections,
+    command: projectHealthCommand,
+    exitCode: result.exitCode
+  };
+}
+
+export async function readProjectDiff(
+  profile: CodexProfile,
+  secrets: ConnectionSecrets,
+  files: string[] = []
+): Promise<ProjectDiff> {
+  const cleanFiles = files
+    .map((file) => cleanText(file))
+    .filter(Boolean)
+    .slice(0, 30);
+  const fileArgs = cleanFiles.length > 0
+    ? ` -- ${cleanFiles.map(shellQuote).join(" ")}`
+    : "";
+  const command = [
+    "set +e",
+    'if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then printf "__CODEX_REMOTE_SECTION__ status\\nnot a git repository\\n__CODEX_REMOTE_SECTION__ diff\\n"; exit 0; fi',
+    'printf "__CODEX_REMOTE_SECTION__ status\\n"',
+    "git status --short",
+    'printf "__CODEX_REMOTE_SECTION__ diff\\n"',
+    `git diff --no-ext-diff --minimal${fileArgs}`,
+    `git diff --cached --no-ext-diff --minimal${fileArgs}`
+  ].join("; ");
+  const result = await runProfileCommand(profile, secrets, command);
+  const sections = parseSections(result.stdout);
+
+  return {
+    status: sectionBody(sections, "status"),
+    diff: sectionBody(sections, "diff"),
+    command,
+    exitCode: result.exitCode
+  };
+}
+
+export async function searchProjectFiles(
+  profile: CodexProfile,
+  secrets: ConnectionSecrets,
+  query: string
+): Promise<FileSearchResult[]> {
+  const cleanQuery = cleanText(query).toLowerCase();
+  if (!cleanQuery) return [];
+
+  const command = [
+    "set +e",
+    "if command -v rg >/dev/null 2>&1; then",
+    "rg --files --hidden -g '!.git' -g '!node_modules' -g '!dist' -g '!build' 2>/dev/null;",
+    "else",
+    "find . -path './.git' -prune -o -path './node_modules' -prune -o -path './dist' -prune -o -path './build' -prune -o -type f -print 2>/dev/null | sed 's#^./##';",
+    "fi"
+  ].join(" ");
+  const result = await runProfileCommand(profile, secrets, command);
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((file) => file.toLowerCase().includes(cleanQuery))
+    .slice(0, 30)
+    .map((file) => ({ path: file, label: path.posix.basename(file) }));
+}
+
+export async function runProjectQuickCommand(
+  profile: CodexProfile,
+  secrets: ConnectionSecrets,
+  command: string
+) {
+  return runProfileCommand(profile, secrets, validateProjectCommand(command));
 }
 
 export async function listDirectories(
