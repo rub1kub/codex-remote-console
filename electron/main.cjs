@@ -139,9 +139,14 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  app.setName("Codex Remote");
+  if (process.platform === "darwin" && app.dock) {
+    app.dock.setIcon(getWindowIconPath());
+  }
   app.setAboutPanelOptions({
     applicationName: "Codex Remote",
     applicationVersion: app.getVersion(),
+    iconPath: getWindowIconPath(),
     copyright: "© 2026 rub1kub",
     credits: `${appDescription}\n\nGitHub: ${repoUrl}`
   });
