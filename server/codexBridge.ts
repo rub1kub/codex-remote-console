@@ -588,17 +588,20 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
 
   private observeNotification(message: JsonRpcMessage) {
     const params = message.params as
-      | { threadId?: string; turn?: { id?: string } }
+      | { threadId?: string; turnId?: string; turn?: { id?: string } }
       | undefined;
 
-    if (params?.threadId) {
+    if (message.method === "turn/started" && params?.threadId) {
       this.activeThreadId = params.threadId;
     }
     if (message.method === "turn/started" && params?.turn?.id) {
       this.activeTurnId = params.turn.id;
     }
     if (message.method === "turn/completed") {
-      this.activeTurnId = undefined;
+      const completedTurnId = params?.turn?.id ?? params?.turnId;
+      if (!completedTurnId || completedTurnId === this.activeTurnId) {
+        this.activeTurnId = undefined;
+      }
     }
   }
 

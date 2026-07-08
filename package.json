@@ -11,6 +11,7 @@
     "dev": "tsx server/index.ts",
     "start": "NODE_ENV=production node build/server/index.js",
     "typecheck": "tsc --noEmit",
+    "test:task-protocol": "tsx scripts/test-task-protocol.ts",
     "test:shell": "npm run build:server && node scripts/test-shell-commands.mjs",
     "smoke:ssh": "npm run build && node scripts/smoke-ssh.mjs",
     "qa:release": "node scripts/release-qa.mjs --assets",

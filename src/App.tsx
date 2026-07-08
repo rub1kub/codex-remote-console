@@ -63,6 +63,13 @@ import type {
   ThreadItem,
   UserInput
 } from "./types";
+import {
+  completionDecisionForActiveTask,
+  isTurnEventForActiveTask,
+  mergeTurnIdentity,
+  parseTurnEvent,
+  type ActiveTurnIdentity
+} from "./taskProtocol";
 
 type ConnectionState = "idle" | "connecting" | "connected";
 type ProfileDraft = Omit<CodexProfile, "id" | "createdAt" | "updatedAt"> & {
@@ -1074,6 +1081,7 @@ export default function App() {
   const taskTokensRef = useRef<TaskTokenStats | null>(null);
   const taskCommandsRef = useRef<TaskCommandSummary[]>([]);
   const taskFilesRef = useRef<FileSummary[]>([]);
+  const activeTaskIdentityRef = useRef<ActiveTurnIdentity>({});
   const fileMentionTimerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const didCheckAppUpdateRef = useRef(false);
@@ -1953,6 +1961,16 @@ export default function App() {
     setLastTaskSummary(null);
   }
 
+  function clearActiveTaskIdentity() {
+    activeTaskIdentityRef.current = {};
+  }
+
+  function mergeAndSetTaskTokens(value: unknown) {
+    const next = mergeTokenStats(taskTokensRef.current, extractTokenStats(value));
+    taskTokensRef.current = next;
+    setTaskTokens(next);
+  }
+
   function startTask(text: string, inputItems: UserInput[] = [], taskAttachments: ComposerAttachment[] = []) {
     const clean = text.trim();
     if ((!clean && inputItems.length === 0) || connectionRef.current !== "connected") return;
@@ -1961,6 +1979,7 @@ export default function App() {
     const threadId = activeThreadRef.current?.id;
     const title = previewText(clean || attachmentSummary(taskAttachments) || "Вложения");
     resetTaskCollectors();
+    activeTaskIdentityRef.current = { threadId };
     setError("");
     setBusy(true);
     const startedAt = Date.now();
@@ -2120,6 +2139,7 @@ export default function App() {
       setLoadingThreadId("");
       setOpenStepGroups({});
       setBusy(false);
+      clearActiveTaskIdentity();
       addLog(`Открыт чат: ${displayTitleOf(message.result.thread, threadMetadata[message.result.thread.id])}`);
       setThreads((current) => {
         const exists = current.some((thread) => thread.id === message.result.thread.id);
@@ -2148,6 +2168,10 @@ export default function App() {
     }
 
     if (message.type === "turn") {
+      activeTaskIdentityRef.current = mergeTurnIdentity(
+        activeTaskIdentityRef.current,
+        message.result
+      );
       setBusy(true);
       return;
     }
@@ -2164,6 +2188,7 @@ export default function App() {
       }
       addLog(`Ошибка: ${message.message}`);
       setBusy(false);
+      clearActiveTaskIdentity();
       setLoadingThreadId("");
       return;
     }
@@ -2267,13 +2292,54 @@ export default function App() {
     }
 
     if (method === "turn/started") {
+      if (!isTurnEventForActiveTask(activeTaskIdentityRef.current, params)) {
+        addLog("Игнорирую turn/started не от текущей задачи");
+        return;
+      }
+      activeTaskIdentityRef.current = mergeTurnIdentity(
+        activeTaskIdentityRef.current,
+        params
+      );
       setBusy(true);
       setTaskStartedAt((current) => current ?? Date.now());
       taskStartedAtRef.current = taskStartedAtRef.current ?? Date.now();
       setTaskCompletedAt(null);
       setTaskActivity("Начинаю задачу");
-      setTaskTokens((current) => mergeTokenStats(current, extractTokenStats(params)));
+      mergeAndSetTaskTokens(params);
       resetTaskCollectors();
+    }
+
+    const taskScopedMethods = new Set([
+      "item/started",
+      "item/agentMessage/delta",
+      "item/plan/delta",
+      "item/commandExecution/outputDelta",
+      "thread/tokenUsage/updated",
+      "item/completed"
+    ]);
+
+    if (taskScopedMethods.has(method)) {
+      const hasActiveTask = isBusy || Boolean(
+        activeTaskIdentityRef.current.threadId ||
+        activeTaskIdentityRef.current.turnId
+      );
+      if (!hasActiveTask) {
+        addLog(`Игнорирую ${method}: активной задачи нет`);
+        return;
+      }
+      if (!isTurnEventForActiveTask(activeTaskIdentityRef.current, params)) {
+        addLog(`Игнорирую ${method} не от текущей задачи`);
+        return;
+      }
+      activeTaskIdentityRef.current = mergeTurnIdentity(
+        activeTaskIdentityRef.current,
+        params
+      );
+    }
+
+    if (method === "thread/tokenUsage/updated") {
+      mergeAndSetTaskTokens(params);
+      return;
     }
 
     if (method === "item/started" && params.item) {
@@ -2282,7 +2348,7 @@ export default function App() {
         setTaskActivity(activityLabelForMessage(next));
         setMessages((current) => upsertMessage(current, next));
       }
-      setTaskTokens((current) => mergeTokenStats(current, extractTokenStats(params)));
+      mergeAndSetTaskTokens(params);
     }
 
     if (method === "item/agentMessage/delta") {
@@ -2332,30 +2398,68 @@ export default function App() {
       if (files.length > 0) {
         taskFilesRef.current = mergeFiles(taskFilesRef.current, files);
       }
-      setTaskTokens((current) => mergeTokenStats(current, extractTokenStats(params)));
+      mergeAndSetTaskTokens(params);
     }
 
     if (method === "turn/completed") {
-      const completedAt = Date.now();
+      const hasActiveTask = isBusy || Boolean(
+        activeTaskIdentityRef.current.threadId ||
+        activeTaskIdentityRef.current.turnId
+      );
+      if (!hasActiveTask) {
+        addLog("Игнорирую turn/completed: активной задачи нет");
+        return;
+      }
+      const decision = completionDecisionForActiveTask(
+        activeTaskIdentityRef.current,
+        params
+      );
+      if (!decision.shouldComplete) {
+        addLog(`Игнорирую turn/completed: ${decision.reason}`);
+        return;
+      }
+      activeTaskIdentityRef.current = mergeTurnIdentity(
+        activeTaskIdentityRef.current,
+        params
+      );
+      const parsedTurn = parseTurnEvent(params);
+      const completedAt = decision.completedAtSeconds
+        ? decision.completedAtSeconds * 1000
+        : Date.now();
       const startedAt = taskStartedAtRef.current ?? completedAt;
       const tokens = mergeTokenStats(taskTokensRef.current, extractTokenStats(params));
+      taskTokensRef.current = tokens;
       setBusy(false);
       setTaskCompletedAt(completedAt);
-      setTaskActivity("Готово");
+      setTaskActivity(
+        decision.status === "failed"
+          ? "Ошибка"
+          : decision.status === "interrupted"
+            ? "Остановлено"
+            : "Готово"
+      );
       setTaskTokens(tokens);
       setLastTaskSummary({
         id: `summary-${completedAt}`,
         title: activeThreadTitle || "Задача",
-        elapsedMs: completedAt - startedAt,
+        elapsedMs: decision.durationMs ?? completedAt - startedAt,
         tokens,
         files: taskFilesRef.current,
         commands: taskCommandsRef.current,
         tests: taskCommandsRef.current.filter((command) => isTestLikeCommand(command.command)),
         completedAt
       });
+      if (decision.status === "failed") {
+        setError(decision.errorMessage || "Codex завершил задачу с ошибкой.");
+      }
+      clearActiveTaskIdentity();
       writeStoredActiveTask(null);
       setRecoveryTask(null);
-      addLog("Задача завершена");
+      addLog(
+        parsedTurn.turnId
+          ? `Задача завершена: ${decision.status} · ${parsedTurn.turnId}`
+          : `Задача завершена: ${decision.status}`
+      );
       notifyCompletion();
       if (preferencesRef.current.autoRefreshHistory) {
         send({ type: "listThreads", searchTerm: searchRef.current });
@@ -2377,6 +2481,7 @@ export default function App() {
     setActiveThread(null);
     setThreads([]);
     setBusy(false);
+    clearActiveTaskIdentity();
     setLoadingThreadId("");
     setOpenStepGroups({});
     didRestoreThreadRef.current = false;
@@ -2498,6 +2603,7 @@ export default function App() {
     send({ type: "disconnect" });
     setConnection("idle");
     setBusy(false);
+    clearActiveTaskIdentity();
     setLoadingThreadId("");
     writeStoredActiveTask(null);
     setRecoveryTask(null);
@@ -2511,6 +2617,7 @@ export default function App() {
     setOpenStepGroups({});
     setTaskCompletedAt(null);
     setLastTaskSummary(null);
+    clearActiveTaskIdentity();
     send({ type: "readThread", threadId: thread.id });
   }
 
