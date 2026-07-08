@@ -3445,22 +3445,32 @@ export default function App() {
         <div className="session-head">
           <div>
             <History size={15} />
-            <span>{showArchivedThreads ? "Архив" : "Чаты"}</span>
+            <span>Чаты</span>
             <small>{visibleThreads.length}</small>
           </div>
-          <button
-            type="button"
-            className={`archive-toggle ${showArchivedThreads ? "active" : ""}`}
-            onClick={() => setShowArchivedThreads((current) => !current)}
-            title={showArchivedThreads ? "Показать обычные чаты" : "Показать архив"}
-            aria-pressed={showArchivedThreads}
-          >
-            <Archive size={14} />
-            <span>{showArchivedThreads ? "Все чаты" : "Архив"}</span>
-          </button>
           <button className="new-dialog-button" onClick={newThread} disabled={connection !== "connected"}>
             <Plus size={14} />
             Новый диалог
+          </button>
+        </div>
+
+        <div className="session-mode-toggle" aria-label="Режим списка чатов">
+          <button
+            type="button"
+            className={!showArchivedThreads ? "active" : ""}
+            onClick={() => setShowArchivedThreads(false)}
+            aria-pressed={!showArchivedThreads}
+          >
+            Активные
+          </button>
+          <button
+            type="button"
+            className={showArchivedThreads ? "active" : ""}
+            onClick={() => setShowArchivedThreads(true)}
+            aria-pressed={showArchivedThreads}
+          >
+            <Archive size={13} />
+            Архив
           </button>
         </div>
 

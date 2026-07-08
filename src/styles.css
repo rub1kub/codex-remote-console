@@ -195,27 +195,35 @@ button:active {
   font-weight: 750;
 }
 
-.archive-toggle {
+.session-mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid #dfe5df;
+  border-radius: 8px;
+  background: #eef2ef;
+}
+
+.session-mode-toggle button {
   display: inline-flex;
-  height: 30px;
+  height: 28px;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 0 9px;
-  border: 1px solid #d7ddd7;
-  border-radius: 7px;
-  background: #ffffff;
-  color: #5f6a63;
+  gap: 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #69736c;
   cursor: pointer;
   font-size: 12px;
   font-weight: 750;
 }
 
-.archive-toggle.active,
-.archive-toggle:hover {
-  border-color: #bfe0d8;
-  background: #eff8f5;
-  color: #13735f;
+.session-mode-toggle button.active {
+  background: #ffffff;
+  color: #202822;
+  box-shadow: 0 1px 2px rgba(24, 30, 26, 0.08);
 }
 
 .small-command,
@@ -3872,7 +3880,7 @@ textarea:focus {
 .theme-dark .composer-box,
 .theme-dark .composer-control,
 .theme-dark .composer-icon-button,
-.theme-dark .archive-toggle,
+.theme-dark .session-mode-toggle,
 .theme-dark .attachment-chip,
 .theme-dark .popover-option,
 .theme-dark .thread-context-menu,
@@ -4032,6 +4040,16 @@ textarea:focus {
 
 .theme-dark .error-banner button.icon-only {
   background: transparent;
+}
+
+.theme-dark .session-mode-toggle button {
+  color: #9aa8a0;
+}
+
+.theme-dark .session-mode-toggle button.active {
+  background: #26302a;
+  color: #edf3ef;
+  box-shadow: none;
 }
 
 .theme-dark .thread-context-menu button.danger {
