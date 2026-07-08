@@ -30,12 +30,14 @@ const defaultPreferences: AppPreferences = {
   animations: true,
   compactMode: false,
   autoCheckUpdates: true,
+  autoCheckAppUpdates: true,
   autoRefreshHistory: true,
   enterToSend: true,
   notifyOnCompletion: true,
   showDiagnostics: false,
   showTaskTimer: true,
   showTokenUsage: true,
+  appUpdateChannel: "stable",
   historyLimit: 80,
   defaultUpdateCommand
 };
@@ -43,6 +45,7 @@ const defaultPreferences: AppPreferences = {
 const interfaceStyles = ["native", "session-first", "calm-terminal"] as const;
 const reasoningLevels = ["low", "medium", "high", "very-high"] as const;
 const responseSpeeds = ["standard", "fast"] as const;
+const appUpdateChannels = ["stable", "preview"] as const;
 
 const dataDir =
   process.env.CODEX_REMOTE_CONSOLE_HOME ??
@@ -140,6 +143,10 @@ function normalizePreferences(input?: Partial<AppPreferences>): AppPreferences {
       typeof input?.autoCheckUpdates === "boolean"
         ? input.autoCheckUpdates
         : defaultPreferences.autoCheckUpdates,
+    autoCheckAppUpdates:
+      typeof input?.autoCheckAppUpdates === "boolean"
+        ? input.autoCheckAppUpdates
+        : defaultPreferences.autoCheckAppUpdates,
     autoRefreshHistory:
       typeof input?.autoRefreshHistory === "boolean"
         ? input.autoRefreshHistory
@@ -164,6 +171,9 @@ function normalizePreferences(input?: Partial<AppPreferences>): AppPreferences {
       typeof input?.showTokenUsage === "boolean"
         ? input.showTokenUsage
         : defaultPreferences.showTokenUsage,
+    appUpdateChannel: appUpdateChannels.includes(input?.appUpdateChannel as AppPreferences["appUpdateChannel"])
+      ? input!.appUpdateChannel!
+      : defaultPreferences.appUpdateChannel,
     historyLimit:
       Number.isInteger(historyLimit) && historyLimit >= 10 && historyLimit <= 300
         ? historyLimit

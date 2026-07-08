@@ -1,5 +1,6 @@
 import express from "express";
 import { createServer, type Server } from "node:http";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 
@@ -16,14 +17,24 @@ import {
 } from "./profiles";
 import {
   checkCodexCli,
+  inspectMcpServers,
   inspectProjectHealth,
+  listProjectFiles,
   listDirectories,
   preflightCodexCli,
+  readProjectFile,
   readProjectDiff,
   runProjectQuickCommand,
   searchProjectFiles,
   updateCodexCli
 } from "./remoteExec";
+import {
+  deleteProfileSecret,
+  getSecretStatus,
+  readProfileSecret,
+  saveProfileSecret
+} from "./secrets";
+import type { AppUpdateStatus } from "./types";
 import type { ReviewTarget, UserInput } from "./types";
 
 type StartServerOptions = {
@@ -56,11 +67,63 @@ async function getProfileWithSecrets(body: Record<string, unknown> = {}) {
   return {
     profile,
     secrets: {
-      password: typeof body.password === "string" && body.password.trim()
-        ? body.password.trim()
-        : undefined
+      password:
+        typeof body.password === "string" && body.password.trim()
+          ? body.password.trim()
+          : await readProfileSecret(profileId)
     }
   };
+}
+
+function compareVersions(left: string, right: string) {
+  const leftParts = left.split(".").map((part) => Number(part) || 0);
+  const rightParts = right.split(".").map((part) => Number(part) || 0);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const diff = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+async function readAppVersion(root: string) {
+  const raw = await readFile(path.join(root, "package.json"), "utf8");
+  const parsed = JSON.parse(raw) as { version?: string };
+  return parsed.version || "0.0.0";
+}
+
+async function checkAppUpdate(root: string, channel: "stable" | "preview" = "stable"): Promise<AppUpdateStatus> {
+  const current = await readAppVersion(root);
+  const fallbackUrl = "https://github.com/rub1kub/codex-remote-console/releases";
+  const includePrerelease = channel === "preview";
+  try {
+    const url = includePrerelease
+      ? "https://api.github.com/repos/rub1kub/codex-remote-console/releases?per_page=20"
+      : "https://api.github.com/repos/rub1kub/codex-remote-console/releases/latest";
+    const result = await fetch(url, {
+      headers: { Accept: "application/vnd.github+json" }
+    });
+    if (!result.ok) throw new Error(`GitHub returned ${result.status}`);
+    const data = await result.json() as { tag_name?: string; html_url?: string; draft?: boolean } | Array<{ tag_name?: string; html_url?: string; draft?: boolean }>;
+    const release = Array.isArray(data)
+      ? data.find((item) => !item.draft) ?? data[0]
+      : data;
+    const latest = (release?.tag_name || "").replace(/^v/, "") || current;
+    return {
+      current,
+      latest,
+      updateAvailable: compareVersions(current, latest) < 0,
+      releaseUrl: release?.html_url || fallbackUrl
+    };
+  } catch (error) {
+    return {
+      current,
+      latest: current,
+      updateAvailable: false,
+      releaseUrl: fallbackUrl,
+      error: error instanceof Error ? error.message : "Не удалось проверить релиз."
+    };
+  }
 }
 
 export async function startServer(
@@ -90,6 +153,40 @@ export async function startServer(
   app.get("/api/preferences", async (_request, response, next) => {
     try {
       response.json({ preferences: await getPreferences() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/app-update", async (_request, response, next) => {
+    try {
+      const preferences = await getPreferences();
+      response.json({ update: await checkAppUpdate(root, preferences.appUpdateChannel) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/secrets", async (_request, response, next) => {
+    try {
+      response.json({ secrets: await getSecretStatus() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/secrets/:profileId", async (request, response, next) => {
+    try {
+      const password = typeof request.body?.password === "string" ? request.body.password : "";
+      response.json({ secrets: await saveProfileSecret(request.params.profileId, password) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/secrets/:profileId", async (request, response, next) => {
+    try {
+      response.json({ secrets: await deleteProfileSecret(request.params.profileId) });
     } catch (error) {
       next(error);
     }
@@ -155,6 +252,26 @@ export async function startServer(
     }
   });
 
+  app.post("/api/project/tree", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      const directoryPath = typeof request.body?.path === "string" ? request.body.path : ".";
+      response.json({ listing: await listProjectFiles(profile, secrets, directoryPath) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/project/file", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      const filePath = typeof request.body?.path === "string" ? request.body.path : "";
+      response.json({ file: await readProjectFile(profile, secrets, filePath) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/project/files", async (request, response, next) => {
     try {
       const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
@@ -170,6 +287,15 @@ export async function startServer(
       const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
       const command = typeof request.body?.command === "string" ? request.body.command : "";
       response.json({ result: await runProjectQuickCommand(profile, secrets, command) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/codex/mcp", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      response.json({ mcp: await inspectMcpServers(profile, secrets) });
     } catch (error) {
       next(error);
     }
@@ -256,7 +382,7 @@ export async function startServer(
 
           closeBridge();
           const secrets = {
-            password: message.password?.trim() || undefined
+            password: message.password?.trim() || await readProfileSecret(message.profileId)
           };
           const preferences = await getPreferences();
           send(ws, { type: "connection", status: "connecting", profile });
@@ -303,7 +429,7 @@ export async function startServer(
             profileId: profile.id,
             result: await checkCodexCli(
               profile,
-              { password: message.password?.trim() || undefined },
+              { password: message.password?.trim() || await readProfileSecret(message.profileId) },
               await getPreferences()
             )
           });
@@ -326,7 +452,7 @@ export async function startServer(
             profileId: profile.id,
             result: await updateCodexCli(
               profile,
-              { password: message.password?.trim() || undefined },
+              { password: message.password?.trim() || await readProfileSecret(message.profileId) },
               await getPreferences()
             )
           });

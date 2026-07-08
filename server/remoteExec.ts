@@ -12,7 +12,11 @@ import type {
   DirectoryEntry,
   DirectoryListing,
   FileSearchResult,
+  McpStatus,
   ProjectDiff,
+  ProjectFileEntry,
+  ProjectFileContent,
+  ProjectFileListing,
   ProjectHealth
 } from "./types";
 
@@ -106,6 +110,15 @@ function parseKeyValue(stdout: string) {
 
 function cleanText(value: unknown, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
+}
+
+function cleanProjectRelativePath(value: unknown, fallback = ".") {
+  const clean = cleanText(value, fallback).replace(/\\/g, "/").replace(/^\.\/+/, "");
+  if (!clean || clean === ".") return ".";
+  if (clean.startsWith("/") || clean.split("/").includes("..") || clean.includes("\0")) {
+    throw new Error("Path must stay inside the project.");
+  }
+  return clean;
 }
 
 function getCodexInstallCommand(
@@ -532,6 +545,156 @@ export async function searchProjectFiles(
     .filter((file) => file.toLowerCase().includes(cleanQuery))
     .slice(0, 30)
     .map((file) => ({ path: file, label: path.posix.basename(file) }));
+}
+
+function parentProjectPath(value: string) {
+  if (!value || value === ".") return undefined;
+  const parent = value.split("/").filter(Boolean).slice(0, -1).join("/");
+  return parent || ".";
+}
+
+function parseProjectFileListing(stdout: string, requestedPath: string): ProjectFileListing {
+  let currentPath = requestedPath === "." ? "" : requestedPath;
+  const entries = stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .flatMap((line) => {
+      if (line.startsWith("cwd=")) {
+        currentPath = line.slice(4);
+        return [];
+      }
+      if (!line.startsWith("entry=")) return [];
+      const [kind, name, entryPath, size, modifiedAt, git, pkg] = line.slice(6).split("\t");
+      if (!name || !entryPath || (kind !== "file" && kind !== "directory")) return [];
+      const entry: ProjectFileEntry = {
+        kind,
+        name,
+        path: entryPath,
+        size: Number(size) || undefined,
+        modifiedAt: Number(modifiedAt) || undefined,
+        isGit: git === "1",
+        hasPackageJson: pkg === "1"
+      };
+      return [entry];
+    });
+
+  return {
+    currentPath,
+    parentPath: parentProjectPath(currentPath || "."),
+    entries: entries.sort((left, right) => {
+      if (left.kind !== right.kind) return left.kind === "directory" ? -1 : 1;
+      return left.name.localeCompare(right.name);
+    })
+  };
+}
+
+export async function listProjectFiles(
+  profile: CodexProfile,
+  secrets: ConnectionSecrets,
+  directoryPath: string
+): Promise<ProjectFileListing> {
+  const relativePath = cleanProjectRelativePath(directoryPath);
+  const command = [
+    "set +e",
+    'BASE="$(pwd -P)"',
+    `TARGET=${shellQuotePath(relativePath)}`,
+    'if ! cd "$TARGET" 2>/dev/null; then printf "not a directory\\n" >&2; exit 2; fi',
+    'CURRENT="$(pwd -P)"',
+    'case "$CURRENT" in "$BASE"|"$BASE"/*) ;; *) printf "outside project\\n" >&2; exit 3;; esac',
+    'REL="${CURRENT#$BASE}"; REL="${REL#/}"',
+    'printf "cwd=%s\\n" "$REL"',
+    'for entry in "$CURRENT"/* "$CURRENT"/.[!.]* "$CURRENT"/..?*; do',
+    '  [ -e "$entry" ] || continue;',
+    '  name="${entry##*/}"; [ "$name" = "." ] || [ "$name" = ".." ] && continue;',
+    '  rel="${entry#$BASE/}";',
+    '  if [ -d "$entry" ]; then kind=directory; size=0; git=0; pkg=0; [ -d "$entry/.git" ] && git=1; [ -f "$entry/package.json" ] && pkg=1; else kind=file; size="$(wc -c < "$entry" 2>/dev/null | tr -d " ")"; git=0; pkg=0; fi;',
+    '  mtime="$(date -r "$entry" +%s 2>/dev/null || stat -c %Y "$entry" 2>/dev/null || printf 0)";',
+    '  printf "entry=%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" "$kind" "$name" "$rel" "${size:-0}" "${mtime:-0}" "$git" "$pkg";',
+    "done"
+  ].join("; ");
+  const result = await runProfileCommand(profile, secrets, command);
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.trim() || "Не удалось открыть папку проекта.");
+  }
+  return parseProjectFileListing(result.stdout, relativePath);
+}
+
+export async function readProjectFile(
+  profile: CodexProfile,
+  secrets: ConnectionSecrets,
+  filePath: string
+): Promise<ProjectFileContent> {
+  const relativePath = cleanProjectRelativePath(filePath);
+  const command = [
+    "set +e",
+    'BASE="$(pwd -P)"',
+    `TARGET=${shellQuotePath(relativePath)}`,
+    'if [ ! -f "$TARGET" ]; then printf "not a file\\n" >&2; exit 2; fi',
+    'TARGET_DIR="$(dirname "$TARGET")"',
+    'TARGET_NAME="$(basename "$TARGET")"',
+    'cd "$TARGET_DIR" || exit 3',
+    'CURRENT="$(pwd -P)"',
+    'TARGET_PATH="$CURRENT/$TARGET_NAME"',
+    'case "$TARGET_PATH" in "$BASE"|"$BASE"/*) ;; *) printf "outside project\\n" >&2; exit 4;; esac',
+    'SIZE="$(wc -c < "$TARGET_PATH" 2>/dev/null | tr -d " ")";',
+    'printf "__CODEX_REMOTE_SECTION__ meta\\n"',
+    'printf "path=%s\\nsize=%s\\n" "$TARGET_PATH" "${SIZE:-0}"',
+    'if ! LC_ALL=C grep -Iq . "$TARGET_PATH" 2>/dev/null && [ "${SIZE:-0}" != "0" ]; then printf "binary=1\\n__CODEX_REMOTE_SECTION__ content\\n"; exit 0; fi',
+    'printf "binary=0\\ntruncated=%s\\n" "$([ "${SIZE:-0}" -gt 120000 ] && printf 1 || printf 0)"',
+    'printf "__CODEX_REMOTE_SECTION__ content\\n"',
+    'head -c 120000 "$TARGET_PATH"'
+  ].join("; ");
+  const result = await runProfileCommand(profile, secrets, command);
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.trim() || "Не удалось прочитать файл.");
+  }
+  const sections = parseSections(result.stdout);
+  const meta = parseKeyValue(sectionBody(sections, "meta"));
+  const absolutePath = meta.path || relativePath;
+  const projectRoot = profile.projectPath.replace(/\/+$/, "");
+  const displayPath = absolutePath.startsWith(`${projectRoot}/`)
+    ? absolutePath.slice(projectRoot.length + 1)
+    : relativePath;
+  const size = Number(meta.size) || 0;
+  const binary = meta.binary === "1";
+  const content = binary ? "" : sectionBody(sections, "content");
+  return {
+    path: displayPath,
+    content,
+    size,
+    binary,
+    truncated: meta.truncated === "1" || content.length >= 120000
+  };
+}
+
+function parseMcpList(stdout: string) {
+  const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines
+    .filter((line) => !/^name\s+/i.test(line) && !/^[-\s]+$/.test(line))
+    .map((line) => {
+      const [name, ...rest] = line.split(/\s{2,}|\t+/).filter(Boolean);
+      return {
+        name: name || line,
+        status: rest.join(" · ") || undefined,
+        raw: line
+      };
+    });
+}
+
+export async function inspectMcpServers(
+  profile: CodexProfile,
+  secrets: ConnectionSecrets
+): Promise<McpStatus> {
+  const codexBin = shellQuotePath(profile.codexBin || "codex");
+  const command = `${codexBin} mcp list`;
+  const result = await runProfileCommand(profile, secrets, command);
+  return {
+    servers: parseMcpList(result.stdout),
+    raw: [result.stdout, result.stderr].filter(Boolean).join("\n").trim(),
+    command,
+    exitCode: result.exitCode
+  };
 }
 
 export async function runProjectQuickCommand(

@@ -43,16 +43,21 @@ import { createPortal } from "react-dom";
 
 import type {
   AppPreferences,
+  AppUpdateStatus,
   ChatMessage,
   CodexCliStatus,
   CodexProfile,
   CodexThread,
   DirectoryListing,
   FileSearchResult,
+  McpStatus,
   ProjectCommandResult,
   ProjectDiff,
+  ProjectFileContent,
+  ProjectFileListing,
   ProjectHealth,
   ReviewTarget,
+  SecretStoreStatus,
   ServerMessage,
   ThreadMetadata,
   ThreadItem,
@@ -87,6 +92,12 @@ type CommandAction = {
   icon: ReactNode;
   disabled?: boolean;
   run: () => void;
+};
+type TaskTemplate = {
+  id: string;
+  title: string;
+  prompt: string;
+  icon: ReactNode;
 };
 type TaskTokenStats = {
   input?: number;
@@ -149,6 +160,31 @@ type CommandRunnerState = {
   result?: ProjectCommandResult;
   error?: string;
 };
+type FilePanelState = {
+  open: boolean;
+  loading: boolean;
+  path: string;
+  listing?: ProjectFileListing;
+  file?: ProjectFileContent;
+  error?: string;
+};
+type McpPanelState = {
+  open: boolean;
+  loading: boolean;
+  result?: McpStatus;
+  error?: string;
+};
+type TemplatesPanelState = {
+  open: boolean;
+};
+type TimelinePanelState = {
+  open: boolean;
+};
+type AppUpdatePanelState = {
+  loading: boolean;
+  result?: AppUpdateStatus;
+  error?: string;
+};
 
 const uiStateStorageKey = "codex-remote-ui-state";
 const activeTaskStorageKey = "codex-remote-active-task";
@@ -165,12 +201,14 @@ const defaultPreferences: AppPreferences = {
   animations: true,
   compactMode: false,
   autoCheckUpdates: true,
+  autoCheckAppUpdates: true,
   autoRefreshHistory: true,
   enterToSend: true,
   notifyOnCompletion: true,
   showDiagnostics: false,
   showTaskTimer: true,
   showTokenUsage: true,
+  appUpdateChannel: "stable",
   historyLimit: 80,
   defaultUpdateCommand
 };
@@ -213,6 +251,39 @@ const speedOptions: Array<{
 }> = [
   { value: "standard", label: "Стандартно", description: "Обычная скорость" },
   { value: "fast", label: "Быстро", description: "Быстрее, расход выше" }
+];
+
+const taskTemplates: TaskTemplate[] = [
+  {
+    id: "check-project",
+    title: "Проверить проект",
+    icon: <Check size={15} />,
+    prompt: "Проверь проект: git status, зависимости, доступные проверки, тесты/линт/сборку. Дай короткий итог с рисками и следующими действиями."
+  },
+  {
+    id: "fix-prod",
+    title: "Починить прод",
+    icon: <ShieldAlert size={15} />,
+    prompt: "Изучи текущую проблему в проде по логам и коду, найди root cause, исправь минимально, проверь тестами/командами и дай итог."
+  },
+  {
+    id: "release",
+    title: "Сделать релиз",
+    icon: <Upload size={15} />,
+    prompt: "Подготовь релиз: проверь статус, тесты, сборку, changelog/README при необходимости, commit/tag/push только если все проверки прошли."
+  },
+  {
+    id: "review-diff",
+    title: "Review diff",
+    icon: <FileText size={15} />,
+    prompt: "Сделай code review текущих изменений. Найди баги, регрессии, риски и недостающие проверки. Сначала findings, потом краткий итог."
+  },
+  {
+    id: "improve-ui",
+    title: "Улучшить UI",
+    icon: <SlidersHorizontal size={15} />,
+    prompt: "Проверь интерфейс приложения как продуктовый дизайнер и frontend engineer. Исправь очевидные UX/UI проблемы, проверь desktop/mobile и дай итог."
+  }
 ];
 
 const compactNumber = new Intl.NumberFormat("ru", {
@@ -304,6 +375,13 @@ function formatTokens(stats: TaskTokenStats | null) {
   const total = stats.total ?? ((stats.input ?? 0) + (stats.output ?? 0));
   if (!total) return "токены: --";
   return `токены: ${compactNumber.format(total)}`;
+}
+
+function formatBytes(value?: number) {
+  if (!value) return "--";
+  if (value < 1024) return `${value} Б`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} КБ`;
+  return `${(value / 1024 / 1024).toFixed(1)} МБ`;
 }
 
 function mergeTokenStats(
@@ -929,6 +1007,20 @@ export default function App() {
     running: false,
     command: ""
   });
+  const [filePanel, setFilePanel] = useState<FilePanelState>({
+    open: false,
+    loading: false,
+    path: "."
+  });
+  const [mcpPanel, setMcpPanel] = useState<McpPanelState>({
+    open: false,
+    loading: false
+  });
+  const [templatesPanel, setTemplatesPanel] = useState<TemplatesPanelState>({ open: false });
+  const [timelinePanel, setTimelinePanel] = useState<TimelinePanelState>({ open: false });
+  const [isTerminalOpen, setTerminalOpen] = useState(false);
+  const [secretStatus, setSecretStatus] = useState<SecretStoreStatus | null>(null);
+  const [appUpdate, setAppUpdate] = useState<AppUpdatePanelState>({ loading: false });
   const [isJournalOpen, setJournalOpen] = useState(false);
   const [fileMentionQuery, setFileMentionQuery] = useState("");
   const [fileMentionResults, setFileMentionResults] = useState<FileSearchResult[]>([]);
@@ -962,6 +1054,7 @@ export default function App() {
   const taskFilesRef = useRef<FileSummary[]>([]);
   const fileMentionTimerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const didCheckAppUpdateRef = useRef(false);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId),
@@ -1064,12 +1157,33 @@ export default function App() {
     : 0;
   const taskStatusLabel = isBusy ? taskActivity : "Готово";
   const taskTokenLabel = formatTokens(taskTokens);
+  const hasStoredSecret = Boolean(
+    selectedProfileId && secretStatus?.storedProfileIds.includes(selectedProfileId)
+  );
+  const appUpdateLabel = appUpdate.loading
+    ? "проверяю"
+    : appUpdate.result?.updateAvailable
+      ? `доступна ${appUpdate.result.latest}`
+      : appUpdate.result?.latest
+        ? "актуально"
+        : "не проверено";
+  const timelineStepCount = messages.filter((message) => message.role !== "user").length;
+  const timelineUserCount = messages.filter((message) => message.role === "user").length;
+  const timelineCommandCount = messages.filter((message) => message.role === "tool" && message.title?.startsWith("Команда")).length;
+  const timelineFileCount = turnDisplay.reduce((count, turn) => count + turn.files.length, 0);
 
   useEffect(() => {
     void loadProfiles();
     void loadPreferences();
     void loadThreadMetadata();
+    void loadSecretStatus();
   }, []);
+
+  useEffect(() => {
+    if (didCheckAppUpdateRef.current || !preferences.autoCheckAppUpdates) return;
+    didCheckAppUpdateRef.current = true;
+    void checkAppUpdate();
+  }, [preferences.autoCheckAppUpdates]);
 
   useEffect(() => {
     preferencesRef.current = preferences;
@@ -1171,6 +1285,11 @@ export default function App() {
       if (event.key === "Escape") {
         closeTransientMenus();
         setCommandOpen(false);
+        setFilePanel((current) => ({ ...current, open: false }));
+        setMcpPanel((current) => ({ ...current, open: false }));
+        setTemplatesPanel({ open: false });
+        setTimelinePanel({ open: false });
+        setTerminalOpen(false);
         closeSettings();
       }
     };
@@ -1388,6 +1507,174 @@ export default function App() {
       password: profileId ? sessionPasswordsRef.current[profileId] || undefined : undefined,
       ...extra
     };
+  }
+
+  async function loadSecretStatus() {
+    try {
+      const response = await fetch("/api/secrets");
+      const data = (await response.json()) as { secrets?: SecretStoreStatus; error?: string };
+      if (!response.ok || !data.secrets) {
+        throw new Error(data.error || "Не удалось прочитать статус секретов.");
+      }
+      setSecretStatus(data.secrets);
+    } catch (secretError) {
+      addLog(secretError instanceof Error ? secretError.message : "Ошибка secret store.");
+    }
+  }
+
+  async function saveCurrentSecret() {
+    const profileId = selectedProfileIdRef.current;
+    const password = profileId ? sessionPasswordsRef.current[profileId] : "";
+    if (!profileId || !password) {
+      setError("Введите пароль подключения, чтобы сохранить его безопасно.");
+      return;
+    }
+    try {
+      const response = await fetch(`/api/secrets/${encodeURIComponent(profileId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password })
+      });
+      const data = (await response.json()) as { secrets?: SecretStoreStatus; error?: string };
+      if (!response.ok || !data.secrets) {
+        throw new Error(data.error || "Не удалось сохранить пароль.");
+      }
+      setSecretStatus(data.secrets);
+      addLog("Пароль сохранен в безопасном хранилище");
+    } catch (secretError) {
+      setError(secretError instanceof Error ? secretError.message : "Не удалось сохранить пароль.");
+    }
+  }
+
+  async function deleteCurrentSecret() {
+    const profileId = selectedProfileIdRef.current;
+    if (!profileId) return;
+    try {
+      const response = await fetch(`/api/secrets/${encodeURIComponent(profileId)}`, {
+        method: "DELETE"
+      });
+      const data = (await response.json()) as { secrets?: SecretStoreStatus; error?: string };
+      if (!response.ok || !data.secrets) {
+        throw new Error(data.error || "Не удалось удалить пароль.");
+      }
+      setSecretStatus(data.secrets);
+      addLog("Сохраненный пароль удален");
+    } catch (secretError) {
+      setError(secretError instanceof Error ? secretError.message : "Не удалось удалить пароль.");
+    }
+  }
+
+  async function checkAppUpdate() {
+    setAppUpdate({ loading: true });
+    try {
+      const response = await fetch("/api/app-update");
+      const data = (await response.json()) as { update?: AppUpdateStatus; error?: string };
+      if (!response.ok || !data.update) {
+        throw new Error(data.error || "Не удалось проверить обновление приложения.");
+      }
+      setAppUpdate({ loading: false, result: data.update });
+      addLog(data.update.updateAvailable ? `Доступна версия ${data.update.latest}` : "Приложение актуально");
+    } catch (updateError) {
+      setAppUpdate({
+        loading: false,
+        error: updateError instanceof Error ? updateError.message : "Не удалось проверить обновление приложения."
+      });
+    }
+  }
+
+  async function loadProjectTree(pathValue = filePanel.path || ".") {
+    if (!selectedProfileIdRef.current) {
+      setProfileOpen(true);
+      return;
+    }
+    const targetPath = pathValue || ".";
+    setFilePanel((current) => ({ ...current, open: true, loading: true, path: targetPath, file: undefined, error: undefined }));
+    try {
+      const response = await fetch("/api/project/tree", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(projectApiBody({ path: targetPath }))
+      });
+      const data = (await response.json()) as { listing?: ProjectFileListing; error?: string };
+      if (!response.ok || !data.listing) {
+        throw new Error(data.error || "Не удалось открыть файлы проекта.");
+      }
+      setFilePanel((current) => ({
+        ...current,
+        open: true,
+        loading: false,
+        path: data.listing!.currentPath || ".",
+        listing: data.listing,
+        file: undefined
+      }));
+    } catch (treeError) {
+      setFilePanel((current) => ({
+        ...current,
+        loading: false,
+        error: treeError instanceof Error ? treeError.message : "Не удалось открыть файлы проекта."
+      }));
+    }
+  }
+
+  async function openProjectFile(pathValue: string) {
+    setFilePanel((current) => ({ ...current, loading: true, file: undefined, error: undefined }));
+    try {
+      const response = await fetch("/api/project/file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(projectApiBody({ path: pathValue }))
+      });
+      const data = (await response.json()) as { file?: ProjectFileContent; error?: string };
+      if (!response.ok || !data.file) {
+        throw new Error(data.error || "Не удалось прочитать файл.");
+      }
+      setFilePanel((current) => ({ ...current, loading: false, file: data.file }));
+    } catch (fileError) {
+      setFilePanel((current) => ({
+        ...current,
+        loading: false,
+        error: fileError instanceof Error ? fileError.message : "Не удалось прочитать файл."
+      }));
+    }
+  }
+
+  function openFilePanel() {
+    void loadProjectTree(".");
+  }
+
+  async function refreshMcpPanel() {
+    if (!selectedProfileIdRef.current) {
+      setProfileOpen(true);
+      return;
+    }
+    setMcpPanel((current) => ({ ...current, open: true, loading: true, error: undefined }));
+    try {
+      const response = await fetch("/api/codex/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(projectApiBody())
+      });
+      const data = (await response.json()) as { mcp?: McpStatus; error?: string };
+      if (!response.ok || !data.mcp) {
+        throw new Error(data.error || "Не удалось прочитать MCP.");
+      }
+      setMcpPanel({ open: true, loading: false, result: data.mcp });
+    } catch (mcpError) {
+      setMcpPanel({
+        open: true,
+        loading: false,
+        error: mcpError instanceof Error ? mcpError.message : "Не удалось прочитать MCP."
+      });
+    }
+  }
+
+  function openMcpPanel() {
+    void refreshMcpPanel();
+  }
+
+  function applyTaskTemplate(template: TaskTemplate) {
+    setInput(template.prompt);
+    setTemplatesPanel({ open: false });
   }
 
   async function searchFilesForMention(query: string) {
@@ -2391,6 +2678,10 @@ export default function App() {
       case "diff":
         void openProjectDiff();
         return true;
+      case "files":
+      case "tree":
+        openFilePanel();
+        return true;
       case "check":
       case "health":
       case "status":
@@ -2399,6 +2690,17 @@ export default function App() {
       case "commands":
       case "cmd":
         openProjectCommands(argument);
+        return true;
+      case "terminal":
+        setTerminalOpen(true);
+        return true;
+      case "timeline":
+      case "work":
+        setTimelinePanel({ open: true });
+        return true;
+      case "templates":
+      case "template":
+        setTemplatesPanel({ open: true });
         return true;
       case "journal":
       case "logs":
@@ -2440,11 +2742,36 @@ export default function App() {
         openProjectCommands(codexCommand(argument ? `doctor ${argument}` : "doctor --summary --ascii"));
         return true;
       case "mcp":
-        openProjectCommands(codexCommand(argument ? `mcp ${argument}` : "mcp list"));
+        if (argument) {
+          openProjectCommands(codexCommand(`mcp ${argument}`));
+        } else {
+          openMcpPanel();
+        }
         return true;
       case "plugins":
       case "plugin":
         openProjectCommands(codexCommand(argument ? `plugin ${argument}` : "plugin list"));
+        return true;
+      case "login":
+        openProjectCommands(codexCommand(argument ? `login ${argument}` : "login"));
+        return true;
+      case "logout":
+        openProjectCommands(codexCommand("logout"));
+        return true;
+      case "app-server":
+        openProjectCommands(codexCommand(argument ? `app-server ${argument}` : "app-server --help"));
+        return true;
+      case "remote-control":
+        openProjectCommands(codexCommand(argument ? `remote-control ${argument}` : "remote-control --help"));
+        return true;
+      case "sandbox":
+        openProjectCommands(codexCommand(argument ? `sandbox ${argument}` : "sandbox --help"));
+        return true;
+      case "completion":
+        openProjectCommands(codexCommand(argument ? `completion ${argument}` : "completion --help"));
+        return true;
+      case "exec-server":
+        openProjectCommands(codexCommand(argument ? `exec-server ${argument}` : "exec-server --help"));
         return true;
       case "skills":
         submitTaskOrQueue("Покажи релевантные skills Codex для текущей задачи и как их лучше использовать.");
@@ -2576,6 +2903,7 @@ export default function App() {
   const slashCommandActions = useMemo(
     () => [
       { command: "/diff", label: "Показать изменения" },
+      { command: "/files", label: "Файлы проекта" },
       { command: "/status", label: "Проверить проект" },
       { command: "/review", label: "Code review изменений" },
       { command: "/compact", label: "Сжать контекст" },
@@ -2584,10 +2912,19 @@ export default function App() {
       { command: "/delete", label: "Удалить чат" },
       { command: "/new", label: "Новый чат" },
       { command: "/commands", label: "Команды проекта" },
+      { command: "/terminal", label: "Терминал" },
+      { command: "/timeline", label: "Ход работы" },
+      { command: "/templates", label: "Шаблоны задач" },
       { command: "/doctor", label: "Диагностика Codex" },
       { command: "/features", label: "Флаги Codex" },
       { command: "/mcp", label: "MCP серверы" },
       { command: "/plugins", label: "Плагины" },
+      { command: "/login", label: "Войти в Codex" },
+      { command: "/logout", label: "Выйти из Codex" },
+      { command: "/app-server", label: "App server" },
+      { command: "/remote-control", label: "Remote control" },
+      { command: "/sandbox", label: "Sandbox" },
+      { command: "/completion", label: "Shell completion" },
       { command: "/cloud", label: "Codex Cloud" },
       { command: "/apply", label: "Применить patch" },
       { command: "/mention", label: "Упомянуть файл" },
@@ -2632,7 +2969,7 @@ export default function App() {
     .join(" ");
   const portalClassName = rootClassName.replace("app-shell", "app-portal");
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.1.1";
+  const appVersion = "1.2.0";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -2684,6 +3021,28 @@ export default function App() {
         run: () => void openProjectDiff()
       },
       {
+        id: "files",
+        label: "Файлы проекта",
+        detail: selectedProfile?.projectPath || "обзор папок и файлов",
+        icon: <FolderOpen size={15} />,
+        disabled: !selectedProfileId,
+        run: openFilePanel
+      },
+      {
+        id: "templates",
+        label: "Шаблоны задач",
+        detail: "готовые промпты для частых сценариев",
+        icon: <MessageSquare size={15} />,
+        run: () => setTemplatesPanel({ open: true })
+      },
+      {
+        id: "timeline",
+        label: "Ход работы",
+        detail: `${timelineStepCount} действий · ${timelineCommandCount} команд`,
+        icon: <History size={15} />,
+        run: () => setTimelinePanel({ open: true })
+      },
+      {
         id: "project-commands",
         label: "Команды проекта",
         detail: quickCommands.slice(0, 2).join(" · ") || "быстрые команды",
@@ -2718,10 +3077,10 @@ export default function App() {
       {
         id: "mcp",
         label: "MCP серверы",
-        detail: "codex mcp list",
+        detail: "список и команды управления",
         icon: <Server size={15} />,
         disabled: !selectedProfileId,
-        run: () => openProjectCommands(codexCommand("mcp list"))
+        run: openMcpPanel
       },
       {
         id: "plugins",
@@ -2732,12 +3091,68 @@ export default function App() {
         run: () => openProjectCommands(codexCommand("plugin list"))
       },
       {
+        id: "login",
+        label: "Войти в Codex",
+        detail: "codex login",
+        icon: <KeyRound size={15} />,
+        disabled: !selectedProfileId,
+        run: () => openProjectCommands(codexCommand("login"))
+      },
+      {
+        id: "logout",
+        label: "Выйти из Codex",
+        detail: "codex logout",
+        icon: <Power size={15} />,
+        disabled: !selectedProfileId,
+        run: () => openProjectCommands(codexCommand("logout"))
+      },
+      {
+        id: "app-server",
+        label: "App server",
+        detail: "codex app-server --help",
+        icon: <Server size={15} />,
+        disabled: !selectedProfileId,
+        run: () => openProjectCommands(codexCommand("app-server --help"))
+      },
+      {
+        id: "remote-control",
+        label: "Remote control",
+        detail: "codex remote-control --help",
+        icon: <Monitor size={15} />,
+        disabled: !selectedProfileId,
+        run: () => openProjectCommands(codexCommand("remote-control --help"))
+      },
+      {
         id: "cloud",
         label: "Codex Cloud",
         detail: "codex cloud",
         icon: <Monitor size={15} />,
         disabled: !selectedProfileId,
-        run: () => openProjectCommands(codexCommand("cloud"))
+        run: () => openProjectCommands(codexCommand("cloud list"))
+      },
+      {
+        id: "sandbox",
+        label: "Sandbox",
+        detail: "codex sandbox --help",
+        icon: <ShieldAlert size={15} />,
+        disabled: !selectedProfileId,
+        run: () => openProjectCommands(codexCommand("sandbox --help"))
+      },
+      {
+        id: "completion",
+        label: "Shell completion",
+        detail: "codex completion --help",
+        icon: <Terminal size={15} />,
+        disabled: !selectedProfileId,
+        run: () => openProjectCommands(codexCommand("completion --help"))
+      },
+      {
+        id: "exec-server",
+        label: "Exec server",
+        detail: "codex exec-server --help",
+        icon: <Server size={15} />,
+        disabled: !selectedProfileId,
+        run: () => openProjectCommands(codexCommand("exec-server --help"))
       },
       {
         id: "apply",
@@ -2753,6 +3168,21 @@ export default function App() {
         detail: logs[0] || "тихая диагностика",
         icon: <History size={15} />,
         run: () => setJournalOpen(true)
+      },
+      {
+        id: "terminal-drawer",
+        label: "Терминал",
+        detail: "скрытая панель команд и вывода",
+        icon: <Terminal size={15} />,
+        disabled: !selectedProfileId,
+        run: () => setTerminalOpen(true)
+      },
+      {
+        id: "app-update",
+        label: "Обновление приложения",
+        detail: appUpdateLabel,
+        icon: <Download size={15} />,
+        run: () => void checkAppUpdate()
       },
       {
         id: "reconnect",
@@ -2779,7 +3209,17 @@ export default function App() {
         run: disconnect
       }
     ],
-    [connection, isCliWorking, logs, quickCommands, selectedProfile, selectedProfileId]
+    [
+      appUpdateLabel,
+      connection,
+      isCliWorking,
+      logs,
+      quickCommands,
+      selectedProfile,
+      selectedProfileId,
+      timelineCommandCount,
+      timelineStepCount
+    ]
   );
   const filteredCommandActions = useMemo(() => {
     const query = commandQuery.trim().toLowerCase();
@@ -4077,6 +4517,328 @@ export default function App() {
         </div>
       )}
 
+      {filePanel.open && renderLayer(
+        <div className="modal-backdrop panel-backdrop" role="presentation">
+          <section className="profile-modal wide-panel file-panel">
+            <div className="modal-head">
+              <div>
+                <h2>Файлы проекта</h2>
+                <p>{filePanel.listing?.currentPath || selectedProfile?.projectPath || "Проект не выбран"}</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setFilePanel((current) => ({ ...current, open: false }))}>
+                <X size={16} />
+              </button>
+            </div>
+            {filePanel.error && <div className="folder-error">{filePanel.error}</div>}
+            <div className="file-browser-layout">
+              <section className="file-tree-panel">
+                <div className="file-tree-toolbar">
+                  <button
+                    type="button"
+                    onClick={() => filePanel.listing?.parentPath && void loadProjectTree(filePanel.listing.parentPath)}
+                    disabled={!filePanel.listing?.parentPath || filePanel.loading}
+                    title="На уровень выше"
+                  >
+                    <ArrowLeft size={14} />
+                  </button>
+                  <button type="button" onClick={() => void loadProjectTree(".")} disabled={filePanel.loading}>
+                    <Folder size={14} />
+                    Корень
+                  </button>
+                  <button type="button" onClick={() => void loadProjectTree(filePanel.path)} disabled={filePanel.loading}>
+                    <RefreshCw size={14} className={filePanel.loading ? "spin" : ""} />
+                  </button>
+                </div>
+                <div className="file-tree-list">
+                  {filePanel.loading && !filePanel.listing ? (
+                    <div className="panel-loading compact">
+                      <Loader2 size={16} className="spin" />
+                      Загружаю файлы
+                    </div>
+                  ) : filePanel.listing?.entries.length ? (
+                    filePanel.listing.entries.map((entry) => (
+                      <button
+                        key={entry.path}
+                        type="button"
+                        className={`file-tree-row ${entry.kind} ${filePanel.file?.path === entry.path ? "active" : ""}`}
+                        onClick={() =>
+                          entry.kind === "directory"
+                            ? void loadProjectTree(entry.path)
+                            : void openProjectFile(entry.path)
+                        }
+                      >
+                        {entry.kind === "directory" ? <Folder size={15} /> : <FileText size={15} />}
+                        <span>{entry.name}</span>
+                        <small>
+                          {entry.kind === "directory"
+                            ? [entry.isGit && "git", entry.hasPackageJson && "app"].filter(Boolean).join(" · ")
+                            : formatBytes(entry.size)}
+                        </small>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="folder-empty">В папке ничего нет.</div>
+                  )}
+                </div>
+              </section>
+
+              <section className="file-preview-panel">
+                {filePanel.loading && filePanel.file ? (
+                  <div className="panel-loading compact">
+                    <Loader2 size={16} className="spin" />
+                    Обновляю файл
+                  </div>
+                ) : filePanel.file ? (
+                  <>
+                    <div className="file-preview-head">
+                      <div>
+                        <strong>{filePanel.file.path}</strong>
+                        <span>{formatBytes(filePanel.file.size)}{filePanel.file.truncated ? " · обрезано" : ""}</span>
+                      </div>
+                      <div>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => addMentionAttachment({
+                            path: filePanel.file!.path,
+                            label: basenameOf(filePanel.file!.path)
+                          })}
+                        >
+                          <Paperclip size={14} />
+                          Вложить
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => void openProjectDiff([{
+                            key: filePanel.file!.path,
+                            path: filePanel.file!.path,
+                            label: basenameOf(filePanel.file!.path)
+                          }])}
+                        >
+                          <FileText size={14} />
+                          Diff
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={filePanel.file.binary}
+                          onClick={() => void navigator.clipboard?.writeText(filePanel.file?.content || "")}
+                        >
+                          Копировать
+                        </button>
+                      </div>
+                    </div>
+                    {filePanel.file.binary ? (
+                      <div className="file-empty-preview">Бинарный файл. Предпросмотр скрыт.</div>
+                    ) : (
+                      <pre className="file-preview-content">{filePanel.file.content || "Файл пустой."}</pre>
+                    )}
+                  </>
+                ) : (
+                  <div className="file-empty-preview">
+                    <FolderOpen size={24} />
+                    <strong>Выберите файл</strong>
+                    <span>Папки открываются внутри панели, файлы можно вложить в задачу или открыть diff.</span>
+                  </div>
+                )}
+              </section>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {mcpPanel.open && renderLayer(
+        <div className="modal-backdrop panel-backdrop" role="presentation">
+          <section className="profile-modal command-runner-panel mcp-panel">
+            <div className="modal-head">
+              <div>
+                <h2>MCP</h2>
+                <p>{selectedProfile?.projectPath || "Проект не выбран"}</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setMcpPanel((current) => ({ ...current, open: false }))}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="panel-toolbar">
+              <button type="button" className="secondary-button" onClick={() => void refreshMcpPanel()} disabled={mcpPanel.loading}>
+                {mcpPanel.loading ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}
+                Обновить
+              </button>
+              <button type="button" className="secondary-button" onClick={() => openProjectCommands(codexCommand("mcp add "))}>
+                <Plus size={15} />
+                Добавить
+              </button>
+              <button type="button" className="secondary-button" onClick={() => openProjectCommands(codexCommand("mcp --help"))}>
+                <Terminal size={15} />
+                Справка
+              </button>
+            </div>
+            {mcpPanel.error && <div className="folder-error">{mcpPanel.error}</div>}
+            {mcpPanel.loading && !mcpPanel.result ? (
+              <div className="panel-loading">
+                <Loader2 size={18} className="spin" />
+                Читаю MCP
+              </div>
+            ) : (
+              <div className="mcp-list">
+                {mcpPanel.result?.servers.length ? (
+                  mcpPanel.result.servers.map((server) => (
+                    <div key={server.name} className="mcp-row">
+                      <Server size={16} />
+                      <div>
+                        <strong>{server.name}</strong>
+                        <span>{server.status || server.raw}</span>
+                      </div>
+                      <button type="button" onClick={() => openProjectCommands(codexCommand(`mcp login ${server.name}`))}>
+                        Войти
+                      </button>
+                      <button type="button" onClick={() => openProjectCommands(codexCommand(`mcp remove ${server.name}`))}>
+                        Удалить
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="folder-empty">MCP серверы не настроены.</div>
+                )}
+                {mcpPanel.result?.raw && (
+                  <details className="raw-details">
+                    <summary>Вывод команды</summary>
+                    <pre>{mcpPanel.result.raw}</pre>
+                  </details>
+                )}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {templatesPanel.open && renderLayer(
+        <div className="modal-backdrop panel-backdrop" role="presentation">
+          <section className="profile-modal command-runner-panel templates-panel">
+            <div className="modal-head">
+              <div>
+                <h2>Шаблоны задач</h2>
+                <p>Быстрый старт без лишних формулировок</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setTemplatesPanel({ open: false })}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="template-grid">
+              {taskTemplates.map((template) => (
+                <button key={template.id} type="button" onClick={() => applyTaskTemplate(template)}>
+                  <span className="command-icon">{template.icon}</span>
+                  <strong>{template.title}</strong>
+                  <small>{previewText(template.prompt)}</small>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {timelinePanel.open && renderLayer(
+        <div className="modal-backdrop panel-backdrop" role="presentation">
+          <section className="profile-modal command-runner-panel timeline-panel">
+            <div className="modal-head">
+              <div>
+                <h2>Ход работы</h2>
+                <p>{activeThreadTitle || selectedProfile?.projectPath}</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setTimelinePanel({ open: false })}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="timeline-metrics">
+              <div><span>сообщения</span><strong>{timelineUserCount}</strong></div>
+              <div><span>действия</span><strong>{timelineStepCount}</strong></div>
+              <div><span>команды</span><strong>{timelineCommandCount}</strong></div>
+              <div><span>файлы</span><strong>{timelineFileCount}</strong></div>
+              <div><span>время</span><strong>{taskStartedAt ? formatDuration(taskElapsedMs) : "--"}</strong></div>
+              <div><span>токены</span><strong>{taskTokenLabel.replace("токены: ", "")}</strong></div>
+            </div>
+            {showTaskStatus && (
+              <div className={`task-status inline ${isBusy ? "working" : "done"}`}>
+                <div className="task-status-main">
+                  {isBusy ? <Loader2 size={15} className="spin" /> : <Check size={15} />}
+                  <span>{isBusy ? "Codex работает" : "Codex закончил"}</span>
+                  <small>{taskStatusLabel}</small>
+                </div>
+              </div>
+            )}
+            <div className="timeline-list">
+              {turnDisplay.slice(-8).map((turn) => (
+                <article key={turn.id} className="timeline-item">
+                  <MessageSquare size={15} />
+                  <div>
+                    <strong>{turn.user ? previewText(turn.user.text) : "Ответ Codex"}</strong>
+                    <span>{turn.items.length} действий · {turn.files.length} файлов</span>
+                  </div>
+                </article>
+              ))}
+              {logs.slice(0, 12).map((line, index) => (
+                <article key={`${line}-${index}`} className="timeline-item muted-item">
+                  <History size={15} />
+                  <div>
+                    <strong>{line}</strong>
+                    <span>журнал</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {isTerminalOpen && renderLayer(
+        <div className="terminal-layer" role="presentation">
+          <aside className="terminal-drawer" aria-label="Терминал">
+            <div className="terminal-head">
+              <div>
+                <strong>Терминал</strong>
+                <span>{selectedProfile?.projectPath || "Проект не выбран"}</span>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setTerminalOpen(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="quick-command-list">
+              {quickCommands.map((command) => (
+                <button key={command} type="button" onClick={() => void runProjectCommand(command)}>
+                  <Terminal size={14} />
+                  {command}
+                </button>
+              ))}
+            </div>
+            <form
+              className="terminal-command-row"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void runProjectCommand();
+              }}
+            >
+              <input
+                value={commandRunner.command}
+                onChange={(event) => setCommandRunner((current) => ({ ...current, command: event.target.value }))}
+                placeholder="git status --short"
+                autoComplete="off"
+              />
+              <button type="submit" className="primary-button" disabled={commandRunner.running || !selectedProfileId}>
+                {commandRunner.running ? <Loader2 size={15} className="spin" /> : <Terminal size={15} />}
+                Run
+              </button>
+            </form>
+            {commandRunner.error && <div className="folder-error">{commandRunner.error}</div>}
+            <pre className="terminal-output">
+              {commandRunner.result
+                ? [commandRunner.result.command, commandRunner.result.stdout, commandRunner.result.stderr].filter(Boolean).join("\n\n")
+                : logs.slice(0, 18).join("\n") || "Вывод появится после запуска команды."}
+            </pre>
+          </aside>
+        </div>
+      )}
+
       {isJournalOpen && renderLayer(
         <div className="modal-backdrop panel-backdrop" role="presentation">
           <section className="profile-modal journal-panel">
@@ -4305,6 +5067,61 @@ export default function App() {
             </section>
 
             <section className="settings-section">
+              <h3>Приложение</h3>
+              <div className="cli-status-card">
+                <div>
+                  <span>Установлено</span>
+                  <strong>{appVersion}</strong>
+                </div>
+                <div>
+                  <span>Последний релиз</span>
+                  <strong>{appUpdate.result?.latest || "не проверено"}</strong>
+                </div>
+                <button className="secondary-button" onClick={() => void checkAppUpdate()} disabled={appUpdate.loading}>
+                  {appUpdate.loading ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}
+                  Проверить
+                </button>
+                <a
+                  className={`primary-button app-release-button ${!appUpdate.result?.releaseUrl ? "disabled" : ""}`}
+                  href={appUpdate.result?.releaseUrl || releaseUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Download size={15} />
+                  Открыть релиз
+                </a>
+              </div>
+              {appUpdate.error && (
+                <div className="cli-install-note">
+                  <Terminal size={14} />
+                  <span>{appUpdate.error}</span>
+                </div>
+              )}
+              <label className="toggle-row">
+                <span>Проверять релиз приложения автоматически</span>
+                <input
+                  type="checkbox"
+                  checked={preferences.autoCheckAppUpdates}
+                  onChange={(event) => void updatePreferences({ autoCheckAppUpdates: event.target.checked })}
+                />
+              </label>
+              <label>
+                Канал обновлений
+                <select
+                  value={preferences.appUpdateChannel}
+                  onChange={(event) =>
+                    void updatePreferences({
+                      appUpdateChannel: event.target.value as AppPreferences["appUpdateChannel"]
+                    })
+                  }
+                >
+                  <option value="stable">stable</option>
+                  <option value="preview">preview</option>
+                </select>
+              </label>
+            </section>
+
+            <section className="settings-section">
               <h3>Сервер</h3>
               <div className="monitor-grid">
                 <div>
@@ -4335,6 +5152,41 @@ export default function App() {
               <div className="monitor-log">
                 <Terminal size={14} />
                 <span>{lastLogLine}</span>
+              </div>
+              <div className="secret-card">
+                <div>
+                  <KeyRound size={15} />
+                  <span>
+                    {secretStatus?.available
+                      ? hasStoredSecret
+                        ? "Пароль сохранен"
+                        : "Пароль не сохранен"
+                      : secretStatus?.reason || "Статус хранилища неизвестен"}
+                  </span>
+                </div>
+                <div>
+                  <button type="button" className="secondary-button" onClick={() => void loadSecretStatus()}>
+                    <RefreshCw size={14} />
+                    Статус
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => void saveCurrentSecret()}
+                    disabled={!secretStatus?.available || !sessionPasswords[selectedProfileId]}
+                  >
+                    <KeyRound size={14} />
+                    Сохранить
+                  </button>
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={() => void deleteCurrentSecret()}
+                    disabled={!hasStoredSecret}
+                  >
+                    Удалить
+                  </button>
+                </div>
               </div>
             </section>
 

@@ -28,12 +28,14 @@ export type AppPreferences = {
   animations: boolean;
   compactMode: boolean;
   autoCheckUpdates: boolean;
+  autoCheckAppUpdates: boolean;
   autoRefreshHistory: boolean;
   enterToSend: boolean;
   notifyOnCompletion: boolean;
   showDiagnostics: boolean;
   showTaskTimer: boolean;
   showTokenUsage: boolean;
+  appUpdateChannel: "stable" | "preview";
   historyLimit: number;
   defaultUpdateCommand: string;
 };
@@ -49,6 +51,30 @@ export type DirectoryEntry = {
   path: string;
   isGit?: boolean;
   hasPackageJson?: boolean;
+};
+
+export type ProjectFileEntry = {
+  name: string;
+  path: string;
+  kind: "file" | "directory";
+  size?: number;
+  modifiedAt?: number;
+  isGit?: boolean;
+  hasPackageJson?: boolean;
+};
+
+export type ProjectFileListing = {
+  currentPath: string;
+  parentPath?: string;
+  entries: ProjectFileEntry[];
+};
+
+export type ProjectFileContent = {
+  path: string;
+  content: string;
+  size: number;
+  truncated: boolean;
+  binary: boolean;
 };
 
 export type DirectoryListing = {
@@ -87,6 +113,33 @@ export type ProjectDiff = {
 export type FileSearchResult = {
   path: string;
   label: string;
+};
+
+export type McpServerInfo = {
+  name: string;
+  raw: string;
+  status?: string;
+};
+
+export type McpStatus = {
+  servers: McpServerInfo[];
+  raw: string;
+  command: string;
+  exitCode: number | null;
+};
+
+export type SecretStoreStatus = {
+  available: boolean;
+  reason?: string;
+  storedProfileIds: string[];
+};
+
+export type AppUpdateStatus = {
+  current: string;
+  latest: string;
+  updateAvailable: boolean;
+  releaseUrl: string;
+  error?: string;
 };
 
 export type UserInput =

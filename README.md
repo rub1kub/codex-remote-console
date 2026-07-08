@@ -8,6 +8,7 @@ Minimal desktop app for working with Codex CLI sessions on remote servers withou
 
 - Saves projects as `server + project folder`, so one server can host multiple workspaces.
 - Lets you browse server directories in the GUI and pick the project folder visually.
+- Browses project files, previews text files, attaches selected files to a task, and opens per-file diff.
 - Connects to a project by clicking it in the sidebar.
 - Starts `codex app-server --listen stdio://` on the target machine.
 - Shows Codex history from the remote `$CODEX_HOME`.
@@ -20,6 +21,9 @@ Minimal desktop app for working with Codex CLI sessions on remote servers withou
 - Opens changed files in an integrated diff viewer.
 - Runs a project health check for git state, package scripts, available checks, and recent logs.
 - Stores per-project quick commands and runs them from the GUI.
+- Keeps a hidden terminal drawer for project commands and diagnostic output.
+- Provides task templates for project check, production fix, release, review, and UI improvement.
+- Shows a task timeline with messages, actions, commands, files, time, and token usage.
 - Keeps a quiet local event journal for connection, history, errors, Codex updates, and commands.
 - Reconnects automatically when the SSH/app-server connection drops.
 - Shows changed files in final messages.
@@ -28,9 +32,11 @@ Minimal desktop app for working with Codex CLI sessions on remote servers withou
 - Supports file/image attachments from paste, drag-and-drop, or file picker. Images are sent as native Codex image input; selected project files are sent as native mentions.
 - Shows app-server approval requests for commands, file changes, permissions, and MCP elicitations instead of leaving the task stuck.
 - Uses native `review/start` for `/review` and the command palette review action.
+- Shows MCP servers in a native panel and routes `mcp add/login/remove` through the command runner.
 - Lets you browse archived sessions and unarchive chats from the context menu.
 - Checks whether Codex CLI is installed, shows the installed/latest version when available, and can install or update it from Settings.
-- Uses a temporary SSH password only for the current connection; it is not stored.
+- Checks application releases from Settings and supports `stable` and `preview` update channels.
+- Uses a temporary SSH password for the current connection by default, with optional Electron safeStorage saving per project.
 - Runs with the default project profile close to `codex --yolo`: `approvalPolicy=never`, `sandbox=danger-full-access`.
 - Ships as an Electron app for macOS, Windows, and Linux.
 
@@ -87,7 +93,8 @@ The app starts the remote app-server roughly like this:
 ssh -T devbox "bash -lc 'cd ~/app && codex app-server --listen stdio://'"
 ```
 
-Passwords, OpenAI tokens, and ChatGPT cookies are not stored by Codex Remote.
+Passwords are not stored unless you explicitly save a project password in `Settings -> Server`.
+Saved passwords use Electron `safeStorage` and stay on the local machine. OpenAI tokens and ChatGPT cookies are not stored by Codex Remote.
 
 ## If Codex CLI Is Not Installed
 
@@ -130,7 +137,7 @@ A minimal project includes:
 - server: `devbox` or `ubuntu@1.2.3.4`
 - project folder: selected in the app, for example `/var/www/site.com`
 - Codex command: `codex`
-- SSH password: optional and never saved
+- SSH password: optional; only saved when explicitly requested in Settings
 - install/update command: optional per-server override
 
 The same server can contain several projects, for example `/var/www/zavozik.xyz` and `/var/www/hytalemonitoring.com`. They are grouped under the same server in the sidebar.
@@ -161,13 +168,16 @@ Implemented in the GUI:
 - `review`: available through native `review/start` from `/review` and the command palette.
 - project commands: available through `/commands` and the project command runner.
 - diff/project status: available through `/diff` and `/status`.
-- `mcp`, `plugin`, `cloud`, `apply`: available through command runner shortcuts and slash commands.
+- project files: available through `/files`, `Cmd/Ctrl+K`, and `@file` mentions.
+- MCP: available through the native MCP panel, `/mcp`, and command runner shortcuts.
+- `plugin`, `cloud`, `apply`, `login`, `logout`, `app-server`, `remote-control`, `sandbox`, `completion`, and `exec-server`: available through command runner shortcuts and slash commands.
 - image input: available through paste, drag-and-drop, and file picker.
 - approvals: command, file-change, permission, and MCP approval requests are shown in-app.
 
 Still intentionally not mirrored as separate polished screens:
 
-- MCP/plugin marketplace management, `cloud`, and `apply` are intentionally exposed through the command runner first. Full guided wizards can be added later without changing the app-server bridge.
+- Plugin marketplace management, guided Codex Cloud flows, and guided `apply` are intentionally exposed through the command runner first. Full wizards can be added later without changing the app-server bridge.
+- Signed background self-update is not enabled for unsigned local builds; Settings can check the latest release and open the release page.
 - Signed auto-update for the app itself is not included in the unsigned local release build.
 
 ## Checks
