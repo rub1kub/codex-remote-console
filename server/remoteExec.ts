@@ -13,6 +13,7 @@ import type {
   DirectoryListing,
   FileSearchResult,
   McpStatus,
+  ProjectDiagnostic,
   ProjectDiff,
   ProjectFileEntry,
   ProjectFileContent,
@@ -444,23 +445,67 @@ function sectionBody(sections: Array<{ title: string; body: string }>, title: st
   return sections.find((section) => section.title === title)?.body.trim() ?? "";
 }
 
-const projectHealthCommand = [
-  "set +e",
-  'section(){ printf "\\n__CODEX_REMOTE_SECTION__ %s\\n" "$1"; }',
-  "section cwd; pwd",
-  'section git; if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git status --short; else printf "not a git repository\\n"; fi',
-  'section package; if [ -f package.json ]; then node -e \'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json","utf8"));console.log("name="+(p.name||""));console.log("scripts="+Object.keys(p.scripts||{}).join(","));\' 2>/dev/null || printf "package.json found\\n"; else printf "package.json not found\\n"; fi',
-  'section package-manager; if [ -f pnpm-lock.yaml ]; then echo pnpm; elif [ -f yarn.lock ]; then echo yarn; elif [ -f bun.lockb ] || [ -f bun.lock ]; then echo bun; elif [ -f package-lock.json ]; then echo npm; else echo ""; fi',
-  'section tools; for tool in git node npm pnpm yarn bun python python3 rg; do command -v "$tool" >/dev/null 2>&1 && printf "%s " "$tool"; done; printf "\\n"',
-  'section checks; if [ -f package.json ]; then node -e \'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json","utf8"));const scripts=p.scripts||{};for(const key of Object.keys(scripts)){if(/^(test|lint|build|typecheck|check|ci)(:|$)/.test(key)) console.log(key)}\' 2>/dev/null; fi',
-  'section logs; find . -maxdepth 3 -type f \\( -name "*.log" -o -name "npm-debug.log*" -o -name "yarn-error.log*" \\) -not -path "./node_modules/*" -not -path "./.git/*" 2>/dev/null | head -5'
-].join("; ");
+function projectHealthCommand(profile: CodexProfile) {
+  const codexBin = shellQuotePath(profile.codexBin || "codex");
+  return [
+    "set +e",
+    'section(){ printf "\\n__CODEX_REMOTE_SECTION__ %s\\n" "$1"; }',
+    'diag(){ printf "diag=%s\\t%s\\t%s\\t%s\\n" "$1" "$2" "$3" "$4"; }',
+    "section cwd",
+    "pwd",
+    "section diagnostics",
+    'diag ssh ok "SSH" "команда на проекте выполнена"',
+    'if [ -d . ]; then diag project-dir ok "Папка проекта" "$(pwd -P)"; else diag project-dir fail "Папка проекта" "не найдена"; fi',
+    'if [ -r . ]; then diag read ok "Чтение" "папка доступна для чтения"; else diag read fail "Чтение" "нет прав на чтение"; fi',
+    'if [ -w . ]; then tmp=".codex-remote-write-test-$$"; if (: > "$tmp") 2>/dev/null; then rm -f "$tmp"; diag write ok "Запись" "write-test прошел"; else diag write warn "Запись" "папка помечена writable, но write-test не прошел"; fi; else diag write warn "Запись" "нет прав на запись"; fi',
+    'ROOT_COUNT="$(find . -maxdepth 1 -mindepth 1 -not -path "./.git" 2>/dev/null | wc -l | tr -d " ")"; if [ "${ROOT_COUNT:-0}" -gt 0 ]; then diag file-tree ok "Файлы" "найдено ${ROOT_COUNT} элементов в корне"; else diag file-tree warn "Файлы" "корень проекта пуст или недоступен"; fi',
+    `CODEX_PATH="$(command -v ${codexBin} 2>/dev/null)"`,
+    `CODEX_VERSION="$(${codexBin} --version 2>/dev/null | head -1)"`,
+    'if [ -n "$CODEX_PATH" ] || [ -n "$CODEX_VERSION" ]; then diag codex ok "Codex CLI" "${CODEX_VERSION:-найден} ${CODEX_PATH}"; else diag codex fail "Codex CLI" "не установлен или не в PATH"; fi',
+    `if ${codexBin} app-server --help >/dev/null 2>&1; then diag app-server ok "App server" "команда app-server доступна"; else diag app-server warn "App server" "команда app-server недоступна или CLI старый"; fi`,
+    'if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then diag git ok "Git" "репозиторий найден"; else diag git warn "Git" "это не git-репозиторий"; fi',
+    'if [ -f package.json ]; then diag package ok "package.json" "найден"; else diag package info "package.json" "не найден"; fi',
+    'section git',
+    'if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git status --short; else printf "not a git repository\\n"; fi',
+    'section package',
+    'if [ -f package.json ]; then node -e \'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json","utf8"));console.log("name="+(p.name||""));console.log("scripts="+Object.keys(p.scripts||{}).join(","));\' 2>/dev/null || printf "package.json found\\n"; else printf "package.json not found\\n"; fi',
+    'section package-manager',
+    'if [ -f pnpm-lock.yaml ]; then echo pnpm; elif [ -f yarn.lock ]; then echo yarn; elif [ -f bun.lockb ] || [ -f bun.lock ]; then echo bun; elif [ -f package-lock.json ]; then echo npm; else echo ""; fi',
+    'section tools',
+    'for tool in git node npm pnpm yarn bun python python3 rg; do command -v "$tool" >/dev/null 2>&1 && printf "%s " "$tool"; done; printf "\\n"',
+    'section checks',
+    'if [ -f package.json ]; then node -e \'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json","utf8"));const scripts=p.scripts||{};for(const key of Object.keys(scripts)){if(/^(test|lint|build|typecheck|check|ci)(:|$)/.test(key)) console.log(key)}\' 2>/dev/null; fi',
+    'section logs',
+    'find . -maxdepth 3 -type f \\( -name "*.log" -o -name "npm-debug.log*" -o -name "yarn-error.log*" \\) -not -path "./node_modules/*" -not -path "./.git/*" 2>/dev/null | head -5'
+  ].join("\n");
+}
+
+function parseProjectDiagnostics(body: string): ProjectDiagnostic[] {
+  return body
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("diag="))
+    .map((line) => {
+      const [id, status, label, detail] = line.slice(5).split("\t");
+      const cleanStatus =
+        status === "ok" || status === "warn" || status === "fail" || status === "info"
+          ? status
+          : "info";
+      return {
+        id: id || "check",
+        status: cleanStatus,
+        label: label || id || "Проверка",
+        detail: detail || ""
+      };
+    });
+}
 
 export async function inspectProjectHealth(
   profile: CodexProfile,
   secrets: ConnectionSecrets
 ): Promise<ProjectHealth> {
-  const result = await runProfileCommand(profile, secrets, projectHealthCommand);
+  const command = projectHealthCommand(profile);
+  const result = await runProfileCommand(profile, secrets, command);
   const sections = parseSections(result.stdout);
   const gitBody = sectionBody(sections, "git");
   const packageBody = sectionBody(sections, "package");
@@ -483,8 +528,9 @@ export async function inspectProjectHealth(
     packageManager: sectionBody(sections, "package-manager") || "не найден",
     scripts,
     availableChecks: checksBody.split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
+    diagnostics: parseProjectDiagnostics(sectionBody(sections, "diagnostics")),
     sections,
-    command: projectHealthCommand,
+    command,
     exitCode: result.exitCode
   };
 }

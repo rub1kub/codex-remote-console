@@ -90,6 +90,13 @@ export type ProjectCommandResult = {
   exitCode: number | null;
 };
 
+export type ProjectDiagnostic = {
+  id: string;
+  label: string;
+  status: "ok" | "warn" | "fail" | "info";
+  detail: string;
+};
+
 export type ProjectHealth = {
   cwd: string;
   isGit: boolean;
@@ -98,6 +105,7 @@ export type ProjectHealth = {
   packageManager: string;
   scripts: string[];
   availableChecks: string[];
+  diagnostics: ProjectDiagnostic[];
   sections: Array<{ title: string; body: string }>;
   command: string;
   exitCode: number | null;

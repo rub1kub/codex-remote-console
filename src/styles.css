@@ -1006,6 +1006,12 @@ textarea:focus {
   gap: 6px;
 }
 
+.modal-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .error-banner button {
   min-height: 28px;
   padding: 0 9px;
@@ -2387,6 +2393,66 @@ textarea:focus {
   gap: 8px;
 }
 
+.diagnostic-list {
+  display: grid;
+  gap: 7px;
+}
+
+.diagnostic-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 9px;
+  border: 1px solid #dfe5df;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #7a837d;
+}
+
+.diagnostic-row.ok {
+  border-color: #c9e5dc;
+  background: #f4fbf8;
+  color: #13735f;
+}
+
+.diagnostic-row.warn {
+  border-color: #ead9ab;
+  background: #fffaf0;
+  color: #8a651a;
+}
+
+.diagnostic-row.fail {
+  border-color: #f0c8c8;
+  background: #fff5f5;
+  color: #a93535;
+}
+
+.diagnostic-row > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.diagnostic-row strong {
+  color: #26302a;
+  font-size: 13px;
+}
+
+.diagnostic-row span {
+  overflow: hidden;
+  color: #69736c;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnostic-row small {
+  color: currentColor;
+  font-size: 11px;
+  font-weight: 850;
+}
+
 .health-grid > div,
 .command-result > div {
   display: grid;
@@ -2472,6 +2538,24 @@ textarea:focus {
   min-height: min(620px, 68vh);
 }
 
+.file-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.file-breadcrumbs button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid #dfe5df;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #33413a;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .file-tree-panel,
 .file-preview-panel {
   display: grid;
@@ -2512,6 +2596,40 @@ textarea:focus {
 .file-tree-toolbar button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.file-search-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-bottom: 1px solid #e5eae5;
+  background: #ffffff;
+  color: #69736c;
+}
+
+.file-search-row input {
+  min-width: 0;
+  height: 30px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: #26302a;
+  font: inherit;
+  outline: none;
+}
+
+.file-search-row button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #69736c;
+  cursor: pointer;
 }
 
 .file-tree-list {
@@ -3781,12 +3899,15 @@ textarea:focus {
 .theme-dark .health-sections details,
 .theme-dark .command-result,
 .theme-dark .health-grid > div,
+.theme-dark .diagnostic-row,
 .theme-dark .quick-command-list button,
 .theme-dark .approval-meta code,
 .theme-dark .bootstrap-card,
 .theme-dark .file-tree-panel,
 .theme-dark .file-preview-panel,
+.theme-dark .file-breadcrumbs button,
 .theme-dark .file-tree-toolbar,
+.theme-dark .file-search-row,
 .theme-dark .file-preview-head,
 .theme-dark .mcp-row,
 .theme-dark .raw-details,
@@ -3939,8 +4060,36 @@ textarea:focus {
 .theme-dark .command-result pre,
 .theme-dark .task-summary-grid strong,
 .theme-dark .health-grid strong,
+.theme-dark .diagnostic-row strong,
 .theme-dark .command-result strong {
   border-color: #2b352f;
+  color: #edf3ef;
+}
+
+.theme-dark .diagnostic-row span,
+.theme-dark .file-search-row {
+  color: #9aa8a0;
+}
+
+.theme-dark .diagnostic-row.ok {
+  border-color: #244d42;
+  background: #12231d;
+  color: #7ce1cb;
+}
+
+.theme-dark .diagnostic-row.warn {
+  border-color: #5a4828;
+  background: #211c12;
+  color: #ffd17a;
+}
+
+.theme-dark .diagnostic-row.fail {
+  border-color: #6b3032;
+  background: #241819;
+  color: #ff9d9d;
+}
+
+.theme-dark .file-search-row input {
   color: #edf3ef;
 }
 

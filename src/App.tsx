@@ -164,6 +164,9 @@ type FilePanelState = {
   open: boolean;
   loading: boolean;
   path: string;
+  search?: string;
+  searchLoading?: boolean;
+  searchResults?: FileSearchResult[];
   listing?: ProjectFileListing;
   file?: ProjectFileContent;
   error?: string;
@@ -382,6 +385,25 @@ function formatBytes(value?: number) {
   if (value < 1024) return `${value} Б`;
   if (value < 1024 * 1024) return `${Math.round(value / 1024)} КБ`;
   return `${(value / 1024 / 1024).toFixed(1)} МБ`;
+}
+
+function pathBreadcrumbs(pathValue: string) {
+  const clean = pathValue && pathValue !== "." ? pathValue.replace(/^\.\/+/, "").replace(/\/+$/, "") : "";
+  const parts = clean ? clean.split("/").filter(Boolean) : [];
+  return [
+    { label: "корень", path: "." },
+    ...parts.map((part, index) => ({
+      label: part,
+      path: parts.slice(0, index + 1).join("/")
+    }))
+  ];
+}
+
+function diagnosticStatusLabel(status: "ok" | "warn" | "fail" | "info") {
+  if (status === "ok") return "OK";
+  if (status === "warn") return "Внимание";
+  if (status === "fail") return "Ошибка";
+  return "Инфо";
 }
 
 function mergeTokenStats(
@@ -1500,6 +1522,33 @@ export default function App() {
     setLogs((current) => [`${stamp} · ${line}`.trim(), ...current].filter(Boolean).slice(0, 80));
   }
 
+  function buildErrorReport() {
+    const profile = selectedProfileRef.current;
+    return [
+      "Codex Remote error report",
+      `version=${appVersion}`,
+      `time=${new Date().toISOString()}`,
+      `connection=${connectionRef.current}`,
+      `codexStatus=${codexStatus || "empty"}`,
+      `error=${error || "empty"}`,
+      `profile=${profile ? `${profile.name} ${profile.mode} ${profile.sshTarget || "local"} ${profile.projectPath}` : "none"}`,
+      `thread=${activeThreadRef.current?.id || "none"}`,
+      "",
+      "recent events:",
+      ...(logs.length ? logs.slice(0, 30) : ["none"])
+    ].join("\n");
+  }
+
+  async function copyErrorReport() {
+    const report = buildErrorReport();
+    try {
+      await navigator.clipboard?.writeText(report);
+      addLog("Диагностический отчет скопирован");
+    } catch {
+      setError(report);
+    }
+  }
+
   function projectApiBody(extra: Record<string, unknown> = {}) {
     const profileId = selectedProfileIdRef.current;
     return {
@@ -1640,6 +1689,33 @@ export default function App() {
 
   function openFilePanel() {
     void loadProjectTree(".");
+  }
+
+  async function searchFilePanel(query = filePanel.search || "") {
+    const cleanQuery = query.trim();
+    if (!cleanQuery) {
+      setFilePanel((current) => ({ ...current, search: "", searchResults: undefined, searchLoading: false }));
+      return;
+    }
+    setFilePanel((current) => ({ ...current, open: true, search: cleanQuery, searchLoading: true, error: undefined }));
+    try {
+      const response = await fetch("/api/project/files", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(projectApiBody({ query: cleanQuery }))
+      });
+      const data = (await response.json()) as { files?: FileSearchResult[]; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "Не удалось найти файлы.");
+      }
+      setFilePanel((current) => ({ ...current, searchLoading: false, searchResults: data.files || [] }));
+    } catch (searchError) {
+      setFilePanel((current) => ({
+        ...current,
+        searchLoading: false,
+        error: searchError instanceof Error ? searchError.message : "Не удалось найти файлы."
+      }));
+    }
   }
 
   async function refreshMcpPanel() {
@@ -2969,7 +3045,7 @@ export default function App() {
     .join(" ");
   const portalClassName = rootClassName.replace("app-shell", "app-portal");
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.2.1";
+  const appVersion = "1.3.0";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -3448,6 +3524,9 @@ export default function App() {
                   )}
                 </>
               )}
+              <button type="button" onClick={() => void copyErrorReport()}>
+                Отчет
+              </button>
               <button type="button" className="icon-only" onClick={() => setError("")} aria-label="Закрыть">
                 <X size={14} />
               </button>
@@ -4434,6 +4513,18 @@ export default function App() {
               <div className="folder-error">{healthPanel.error}</div>
             ) : healthPanel.result && (
               <>
+                <div className="diagnostic-list">
+                  {healthPanel.result.diagnostics.map((item) => (
+                    <div key={item.id} className={`diagnostic-row ${item.status}`}>
+                      <Circle size={8} fill="currentColor" />
+                      <div>
+                        <strong>{item.label}</strong>
+                        <span>{item.detail}</span>
+                      </div>
+                      <small>{diagnosticStatusLabel(item.status)}</small>
+                    </div>
+                  ))}
+                </div>
                 <div className="health-grid">
                   <div><span>Git</span><strong>{healthPanel.result.isGit ? "есть" : "нет"}</strong></div>
                   <div><span>Изменения</span><strong>{healthPanel.result.dirtyFiles || "--"}</strong></div>
@@ -4530,6 +4621,18 @@ export default function App() {
               </button>
             </div>
             {filePanel.error && <div className="folder-error">{filePanel.error}</div>}
+            <div className="file-breadcrumbs">
+              {pathBreadcrumbs(filePanel.listing?.currentPath || filePanel.path).map((crumb, index) => (
+                <button
+                  key={`${crumb.path}-${index}`}
+                  type="button"
+                  onClick={() => void loadProjectTree(crumb.path)}
+                  disabled={filePanel.loading}
+                >
+                  {crumb.label}
+                </button>
+              ))}
+            </div>
             <div className="file-browser-layout">
               <section className="file-tree-panel">
                 <div className="file-tree-toolbar">
@@ -4549,8 +4652,49 @@ export default function App() {
                     <RefreshCw size={14} className={filePanel.loading ? "spin" : ""} />
                   </button>
                 </div>
+                <form
+                  className="file-search-row"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void searchFilePanel();
+                  }}
+                >
+                  <Search size={14} />
+                  <input
+                    value={filePanel.search || ""}
+                    placeholder="Поиск файлов"
+                    onChange={(event) => setFilePanel((current) => ({ ...current, search: event.target.value }))}
+                  />
+                  {filePanel.search ? (
+                    <button type="button" onClick={() => setFilePanel((current) => ({ ...current, search: "", searchResults: undefined }))}>
+                      <X size={13} />
+                    </button>
+                  ) : null}
+                </form>
                 <div className="file-tree-list">
-                  {filePanel.loading && !filePanel.listing ? (
+                  {filePanel.searchLoading ? (
+                    <div className="panel-loading compact">
+                      <Loader2 size={16} className="spin" />
+                      Ищу файлы
+                    </div>
+                  ) : filePanel.searchResults ? (
+                    filePanel.searchResults.length ? (
+                      filePanel.searchResults.map((entry) => (
+                        <button
+                          key={entry.path}
+                          type="button"
+                          className={`file-tree-row file ${filePanel.file?.path === entry.path ? "active" : ""}`}
+                          onClick={() => void openProjectFile(entry.path)}
+                        >
+                          <FileText size={15} />
+                          <span>{entry.path}</span>
+                          <small>search</small>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="folder-empty">Ничего не найдено.</div>
+                    )
+                  ) : filePanel.loading && !filePanel.listing ? (
                     <div className="panel-loading compact">
                       <Loader2 size={16} className="spin" />
                       Загружаю файлы
@@ -4622,10 +4766,17 @@ export default function App() {
                         <button
                           type="button"
                           className="secondary-button"
+                          onClick={() => void navigator.clipboard?.writeText(filePanel.file?.path || "")}
+                        >
+                          Путь
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-button"
                           disabled={filePanel.file.binary}
                           onClick={() => void navigator.clipboard?.writeText(filePanel.file?.content || "")}
                         >
-                          Копировать
+                          Текст
                         </button>
                       </div>
                     </div>
@@ -4847,9 +4998,14 @@ export default function App() {
                 <h2>Журнал событий</h2>
                 <p>Тихая диагностика приложения</p>
               </div>
-              <button type="button" className="icon-button" onClick={() => setJournalOpen(false)}>
-                <X size={16} />
-              </button>
+              <div className="modal-head-actions">
+                <button type="button" className="secondary-button" onClick={() => void copyErrorReport()}>
+                  Отчет
+                </button>
+                <button type="button" className="icon-button" onClick={() => setJournalOpen(false)}>
+                  <X size={16} />
+                </button>
+              </div>
             </div>
             <div className="journal-list">
               {logs.length > 0 ? logs.map((line, index) => (

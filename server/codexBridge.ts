@@ -239,7 +239,7 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       clientInfo: {
         name: "codex_remote_console",
         title: "Codex Remote Console",
-        version: "1.2.1"
+        version: "1.3.0"
       },
       capabilities: {
         experimentalApi: true

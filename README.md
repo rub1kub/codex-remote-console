@@ -8,7 +8,7 @@ Minimal desktop app for working with Codex CLI sessions on remote servers withou
 
 - Saves projects as `server + project folder`, so one server can host multiple workspaces.
 - Lets you browse server directories in the GUI and pick the project folder visually.
-- Browses project files, previews text files, attaches selected files to a task, and opens per-file diff.
+- Browses project files, searches project paths, previews text files, copies paths/content, attaches selected files to a task, and opens per-file diff.
 - Connects to a project by clicking it in the sidebar.
 - Starts `codex app-server --listen stdio://` on the target machine.
 - Shows Codex history from the remote `$CODEX_HOME`.
@@ -19,7 +19,7 @@ Minimal desktop app for working with Codex CLI sessions on remote servers withou
 - Restores an unfinished task state after app restart and offers reconnect/refresh actions.
 - Shows a compact task summary with elapsed time, token usage, touched files, commands, and checks.
 - Opens changed files in an integrated diff viewer.
-- Runs a project health check for git state, package scripts, available checks, and recent logs.
+- Runs a structured project health check for SSH, folder access, read/write permissions, Codex CLI, app-server command support, git state, package scripts, available checks, and recent logs.
 - Stores per-project quick commands and runs them from the GUI.
 - Keeps a hidden terminal drawer for project commands and diagnostic output.
 - Provides task templates for project check, production fix, release, review, and UI improvement.
@@ -184,9 +184,16 @@ Still intentionally not mirrored as separate polished screens:
 
 ```bash
 npm run typecheck
+npm run test:shell
+npm run smoke:ssh
 npm run build
+npm run qa:release
 npm run electron:dev
 ```
+
+`npm run test:shell` runs the file/tree/search/diff/health shell paths against a temporary local project.
+`npm run smoke:ssh` starts the production server on a temporary local port and checks the saved SSH profile through the real HTTP API. Set `CODEX_REMOTE_SMOKE_PROFILE_ID`, `CODEX_REMOTE_SMOKE_FILE`, or `CODEX_REMOTE_SMOKE_PASSWORD` when the default profile is not enough.
+`npm run qa:release` checks version consistency, icons, npm scripts, and release artifacts for the current app version.
 
 ## Shortcuts and Actions
 
