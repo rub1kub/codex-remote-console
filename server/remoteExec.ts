@@ -509,7 +509,7 @@ export async function readProjectDiff(
     'printf "__CODEX_REMOTE_SECTION__ diff\\n"',
     `git diff --no-ext-diff --minimal${fileArgs}`,
     `git diff --cached --no-ext-diff --minimal${fileArgs}`
-  ].join("; ");
+  ].join("\n");
   const result = await runProfileCommand(profile, secrets, command);
   const sections = parseSections(result.stdout);
 
@@ -536,12 +536,14 @@ export async function searchProjectFiles(
     "else",
     "find . -path './.git' -prune -o -path './node_modules' -prune -o -path './dist' -prune -o -path './build' -prune -o -type f -print 2>/dev/null | sed 's#^./##';",
     "fi"
-  ].join(" ");
+  ].join("\n");
   const result = await runProfileCommand(profile, secrets, command);
   return result.stdout
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
+    .filter((file) => !/(^|\/)(__pycache__|node_modules|dist|build|venv|\.venv)(\/|$)/.test(file))
+    .filter((file) => !file.endsWith(".pyc"))
     .filter((file) => file.toLowerCase().includes(cleanQuery))
     .slice(0, 30)
     .map((file) => ({ path: file, label: path.posix.basename(file) }));
@@ -612,7 +614,7 @@ export async function listProjectFiles(
     '  mtime="$(date -r "$entry" +%s 2>/dev/null || stat -c %Y "$entry" 2>/dev/null || printf 0)";',
     '  printf "entry=%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" "$kind" "$name" "$rel" "${size:-0}" "${mtime:-0}" "$git" "$pkg";',
     "done"
-  ].join("; ");
+  ].join("\n");
   const result = await runProfileCommand(profile, secrets, command);
   if (result.exitCode !== 0) {
     throw new Error(result.stderr.trim() || "Не удалось открыть папку проекта.");
@@ -644,7 +646,7 @@ export async function readProjectFile(
     'printf "binary=0\\ntruncated=%s\\n" "$([ "${SIZE:-0}" -gt 120000 ] && printf 1 || printf 0)"',
     'printf "__CODEX_REMOTE_SECTION__ content\\n"',
     'head -c 120000 "$TARGET_PATH"'
-  ].join("; ");
+  ].join("\n");
   const result = await runProfileCommand(profile, secrets, command);
   if (result.exitCode !== 0) {
     throw new Error(result.stderr.trim() || "Не удалось прочитать файл.");
