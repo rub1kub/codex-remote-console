@@ -3456,6 +3456,7 @@ export default function App() {
             aria-pressed={showArchivedThreads}
           >
             <Archive size={14} />
+            <span>{showArchivedThreads ? "Все чаты" : "Архив"}</span>
           </button>
           <button className="new-dialog-button" onClick={newThread} disabled={connection !== "connected"}>
             <Plus size={14} />

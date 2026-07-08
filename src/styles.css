@@ -197,15 +197,18 @@ button:active {
 
 .archive-toggle {
   display: inline-flex;
-  width: 30px;
   height: 30px;
   align-items: center;
   justify-content: center;
+  gap: 6px;
+  padding: 0 9px;
   border: 1px solid #d7ddd7;
   border-radius: 7px;
   background: #ffffff;
   color: #5f6a63;
   cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .archive-toggle.active,
