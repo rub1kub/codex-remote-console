@@ -78,6 +78,13 @@ async function main() {
     const tree = await request("/api/project/tree", { ...body, path: "." });
     assert(tree.listing.entries.length > 0, "project tree is empty");
 
+    const runtime = await request("/api/project/runtime", body);
+    assert(Array.isArray(runtime.runtime?.processes), "runtime endpoint did not return processes");
+    assert(runtime.runtime?.services?.systemctl, "runtime endpoint did not return service providers");
+
+    const instructions = await request("/api/project/instructions", body);
+    assert(typeof instructions.file?.revision === "string", "instructions endpoint did not return a revision");
+
     const filePath = await findReadableFile(profileId, tree.listing);
     const file = await request("/api/project/file", { ...body, path: filePath });
     assert(file.file.path === filePath, "file preview path mismatch");
@@ -96,6 +103,10 @@ async function main() {
       body: JSON.stringify({ ...body, path: "/etc/passwd" })
     }).then((response) => response.json());
     assert(blocked.error, "absolute path traversal was not blocked");
+
+    const exported = await request("/api/profiles/export");
+    assert(exported.bundle?.schemaVersion === 1, "profile export returned an unsupported bundle");
+    assert(!JSON.stringify(exported.bundle).toLowerCase().includes("password"), "profile export contains password data");
 
     console.log(`smoke ssh: ok (${profileId}, ${filePath})`);
   } finally {

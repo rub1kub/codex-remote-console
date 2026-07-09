@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, shell } = require("electron");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
@@ -7,6 +7,7 @@ process.env.CODEX_REMOTE_NO_AUTOSTART = "1";
 
 let serverHandle;
 let mainWindow;
+const appWindows = new Set();
 
 const appDescription =
   "Desktop app for remote Codex CLI sessions over SSH with project history, folder picker, chat UI, and packaged builds for macOS, Windows, and Linux.";
@@ -98,10 +99,28 @@ function createMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-async function createWindow() {
-  serverHandle = await startBackend();
+async function ensureBackend() {
+  if (!serverHandle) {
+    serverHandle = await startBackend();
+  }
+  return serverHandle;
+}
 
-  mainWindow = new BrowserWindow({
+function isTrustedRenderer(event) {
+  if (!serverHandle) return false;
+  try {
+    const senderUrl = new URL(event.senderFrame.url);
+    const backendUrl = new URL(serverHandle.url);
+    return senderUrl.origin === backendUrl.origin;
+  } catch {
+    return false;
+  }
+}
+
+async function createWindow(profileId = "") {
+  const backend = await ensureBackend();
+
+  const window = new BrowserWindow({
     width: 1180,
     height: 800,
     minWidth: 860,
@@ -124,18 +143,32 @@ async function createWindow() {
     backgroundColor: "#f0f2ef",
     autoHideMenuBar: process.platform !== "darwin",
     webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
     }
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  appWindows.add(window);
+  if (!mainWindow || mainWindow.isDestroyed()) mainWindow = window;
+
+  window.on("closed", () => {
+    appWindows.delete(window);
+    if (mainWindow === window) {
+      mainWindow = BrowserWindow.getAllWindows()[0] || null;
+    }
+  });
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
   });
 
-  await mainWindow.loadURL(serverHandle.url);
+  const targetUrl = new URL(backend.url);
+  if (profileId) targetUrl.searchParams.set("profile", profileId);
+  await window.loadURL(targetUrl.toString());
+  return window;
 }
 
 app.whenReady().then(async () => {
@@ -151,6 +184,14 @@ app.whenReady().then(async () => {
     credits: `${appDescription}\n\nGitHub: ${repoUrl}`
   });
   createMenu();
+  ipcMain.handle("codex-remote:open-workspace", async (event, profileId) => {
+    if (!isTrustedRenderer(event)) throw new Error("Untrusted renderer.");
+    if (typeof profileId !== "string" || !/^[A-Za-z0-9._:-]{1,160}$/.test(profileId)) {
+      throw new Error("Invalid project id.");
+    }
+    await createWindow(profileId);
+    return true;
+  });
   await createWindow();
 
   app.on("activate", async () => {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -51,6 +51,7 @@ const dataDir =
   process.env.CODEX_REMOTE_CONSOLE_HOME ??
   path.join(os.homedir(), ".codex-remote-console");
 const storePath = path.join(dataDir, "profiles.json");
+let storeMutationQueue: Promise<unknown> = Promise.resolve();
 
 const now = () => new Date().toISOString();
 
@@ -76,9 +77,22 @@ async function readStore(): Promise<Store> {
 
 async function writeStore(store: Store) {
   await mkdir(dataDir, { recursive: true, mode: 0o700 });
-  await writeFile(storePath, `${JSON.stringify(store, null, 2)}\n`, {
+  const temporaryPath = `${storePath}.${process.pid}.${randomUUID()}.tmp`;
+  await writeFile(temporaryPath, `${JSON.stringify(store, null, 2)}\n`, {
     mode: 0o600
   });
+  await rename(temporaryPath, storePath);
+}
+
+function mutateStore<T>(mutation: (store: Store) => T | Promise<T>) {
+  const operation = storeMutationQueue.then(async () => {
+    const store = await readStore();
+    const result = await mutation(store);
+    await writeStore(store);
+    return result;
+  });
+  storeMutationQueue = operation.then(() => undefined, () => undefined);
+  return operation;
 }
 
 function cleanText(value: unknown, fallback = "") {
@@ -231,27 +245,27 @@ export async function getProfile(id: string) {
 }
 
 export async function saveProfile(input: ProfileInput, id?: string) {
-  const store = await readStore();
-  const index = id
-    ? store.profiles.findIndex((profile) => profile.id === id)
-    : -1;
-  const profile = normalizeProfile(input, index >= 0 ? store.profiles[index] : undefined);
+  return mutateStore((store) => {
+    const index = id
+      ? store.profiles.findIndex((profile) => profile.id === id)
+      : -1;
+    const profile = normalizeProfile(input, index >= 0 ? store.profiles[index] : undefined);
 
-  if (index >= 0) {
-    store.profiles[index] = profile;
-  } else {
-    store.profiles.unshift(profile);
-  }
-
-  await writeStore(store);
-  return profile;
+    if (index >= 0) {
+      store.profiles[index] = profile;
+    } else {
+      store.profiles.unshift(profile);
+    }
+    return profile;
+  });
 }
 
 export async function deleteProfile(id: string) {
-  const store = await readStore();
-  const next = store.profiles.filter((profile) => profile.id !== id);
-  await writeStore({ ...store, profiles: next });
-  return next.length !== store.profiles.length;
+  return mutateStore((store) => {
+    const previousLength = store.profiles.length;
+    store.profiles = store.profiles.filter((profile) => profile.id !== id);
+    return store.profiles.length !== previousLength;
+  });
 }
 
 export async function getPreferences() {
@@ -259,14 +273,71 @@ export async function getPreferences() {
 }
 
 export async function savePreferences(input: Partial<AppPreferences>) {
-  const store = await readStore();
-  const preferences = normalizePreferences({ ...store.preferences, ...input });
-  await writeStore({ ...store, preferences });
-  return preferences;
+  return mutateStore((store) => {
+    const preferences = normalizePreferences({ ...store.preferences, ...input });
+    store.preferences = preferences;
+    return preferences;
+  });
 }
 
 export async function getThreadMetadata() {
   return (await readStore()).threadMetadata;
+}
+
+export async function exportProfileBundle() {
+  const profiles = await listProfiles();
+  return {
+    schemaVersion: 1,
+    exportedAt: now(),
+    secretsIncluded: false,
+    profiles: profiles.map(({ id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...profile }) => profile)
+  };
+}
+
+export async function importProfileBundle(input: unknown) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("Invalid profile bundle.");
+  }
+  const bundle = input as { schemaVersion?: unknown; profiles?: unknown };
+  if (bundle.schemaVersion !== 1 || !Array.isArray(bundle.profiles)) {
+    throw new Error("Unsupported profile bundle version.");
+  }
+  if (bundle.profiles.length > 100) {
+    throw new Error("A profile bundle can contain at most 100 projects.");
+  }
+
+  return mutateStore((store) => {
+    const imported: CodexProfile[] = [];
+    const skipped: string[] = [];
+    for (const value of bundle.profiles as unknown[]) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("Profile bundle contains an invalid project.");
+      }
+      const candidate = value as Record<string, unknown>;
+      if (candidate.mode !== "ssh" && candidate.mode !== "local") {
+        throw new Error("Profile bundle contains an invalid connection mode.");
+      }
+      if (candidate.approvalPolicy && !["never", "on-request", "on-failure", "untrusted"].includes(String(candidate.approvalPolicy))) {
+        throw new Error("Profile bundle contains an invalid approval policy.");
+      }
+      if (candidate.sandboxMode && !["danger-full-access", "workspace-write", "read-only"].includes(String(candidate.sandboxMode))) {
+        throw new Error("Profile bundle contains an invalid sandbox mode.");
+      }
+      const profile = normalizeProfile(candidate as ProfileInput);
+      const duplicate = store.profiles.some((item) =>
+        item.mode === profile.mode &&
+        item.sshTarget === profile.sshTarget &&
+        item.projectPath === profile.projectPath
+      );
+      if (duplicate) {
+        skipped.push(profile.name);
+        continue;
+      }
+      imported.push(profile);
+      store.profiles.unshift(profile);
+    }
+    return { imported, skipped };
+  });
 }
 
 function normalizeThreadMetadata(
@@ -296,19 +367,17 @@ export async function saveThreadMetadata(
   threadId: string,
   input: Partial<ThreadMetadata> = {}
 ) {
-  const store = await readStore();
-  const current = store.threadMetadata[threadId] ?? {};
-  const next = normalizeThreadMetadata(current, input);
+  return mutateStore((store) => {
+    const current = store.threadMetadata[threadId] ?? {};
+    const next = normalizeThreadMetadata(current, input);
 
-  const threadMetadata = { ...store.threadMetadata };
-  if (hasThreadMetadata(next)) {
-    threadMetadata[threadId] = next;
-  } else {
-    delete threadMetadata[threadId];
-  }
-
-  await writeStore({ ...store, threadMetadata });
-  return threadMetadata[threadId] ?? {};
+    if (hasThreadMetadata(next)) {
+      store.threadMetadata[threadId] = next;
+    } else {
+      delete store.threadMetadata[threadId];
+    }
+    return store.threadMetadata[threadId] ?? {};
+  });
 }
 
 export { defaultPreferences, defaultUpdateCommand };

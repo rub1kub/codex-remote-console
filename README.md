@@ -10,15 +10,19 @@ Minimal desktop app for working with Codex CLI sessions on remote servers withou
 - Lets you browse server directories in the GUI and pick the project folder visually.
 - Browses project files, searches project paths, previews text files, copies paths/content, attaches selected files to a task, and opens per-file diff.
 - Connects to a project by clicking it in the sidebar.
+- Opens a project in a separate Electron window with an independent Codex connection, so tasks can run in parallel across projects.
 - Starts `codex app-server --listen stdio://` on the target machine.
 - Shows Codex history from the remote `$CODEX_HOME`.
 - Opens previous chats, resumes them, and starts new dialogs in the selected project.
 - Pins chats locally, renames them, and hides them with confirmation.
 - Collapses intermediate work into one "work progress" block and keeps the final answer readable.
 - Queues a new task while Codex is busy instead of accidentally starting overlapping work.
+- Keeps per-chat drafts, open chat tabs, and a persistent task center with running, attention, and completed states.
 - Restores an unfinished task state after app restart and offers reconnect/refresh actions.
 - Shows a compact task summary with elapsed time, token usage, touched files, commands, and checks.
 - Opens changed files in an integrated diff viewer.
+- Provides a project workbench for Git status/stage/unstage/commit/push, branches, server processes, logs, services, and the root `AGENTS.md`.
+- Creates a non-destructive hidden Git checkpoint before each task using a temporary index, including new non-ignored files without changing the real stage or worktree.
 - Runs a structured project health check for SSH, folder access, read/write permissions, Codex CLI, app-server command support, git state, package scripts, available checks, and recent logs.
 - Stores per-project quick commands and runs them from the GUI.
 - Keeps a hidden terminal drawer for project commands and diagnostic output.
@@ -36,6 +40,7 @@ Minimal desktop app for working with Codex CLI sessions on remote servers withou
 - Lets you browse archived sessions and unarchive chats from the context menu.
 - Checks whether Codex CLI is installed, shows the installed/latest version when available, and can install or update it from Settings.
 - Checks application releases from Settings and supports `stable` and `preview` update channels.
+- Exports and imports project profiles without passwords or local secret-store data.
 - Uses a temporary SSH password for the current connection by default, with optional Electron safeStorage saving per project.
 - Runs with the default project profile close to `codex --yolo`: `approvalPolicy=never`, `sandbox=danger-full-access`.
 - Ships as an Electron app for macOS, Windows, and Linux.
@@ -129,6 +134,7 @@ flowchart LR
 ```
 
 The app is not a terminal wrapper. It talks to `codex app-server`, so chat history and live events come through the same app-server interface used by full Codex clients.
+Each Electron window has its own WebSocket and Codex bridge. The local HTTP backend and encrypted profile store are shared, while remote tasks remain independent.
 
 ## Projects
 
@@ -173,6 +179,7 @@ Implemented in the GUI:
 - `plugin`, `cloud`, `apply`, `login`, `logout`, `app-server`, `remote-control`, `sandbox`, `completion`, and `exec-server`: available through command runner shortcuts and slash commands.
 - image input: available through paste, drag-and-drop, and file picker.
 - approvals: command, file-change, permission, and MCP approval requests are shown in-app.
+- workspace tools: Git operations, project runtime, logs, services, and root instructions are available from the Project panel.
 
 Still intentionally not mirrored as separate polished screens:
 
@@ -184,6 +191,9 @@ Still intentionally not mirrored as separate polished screens:
 
 ```bash
 npm run typecheck
+npm run test:task-protocol
+npm run test:message-history
+npm run test:project-tools
 npm run test:shell
 npm run smoke:ssh
 npm run build
@@ -192,18 +202,23 @@ npm run electron:dev
 ```
 
 `npm run test:shell` runs the file/tree/search/diff/health shell paths against a temporary local project.
+`npm run test:message-history` covers app-server ghost turns and prevents repeated user messages in restored history.
+`npm run test:project-tools` validates Git stage/unstage/commit/push paths and guarded `AGENTS.md` writes in a temporary repository.
 `npm run smoke:ssh` starts the production server on a temporary local port and checks the saved SSH profile through the real HTTP API. Set `CODEX_REMOTE_SMOKE_PROFILE_ID`, `CODEX_REMOTE_SMOKE_FILE`, or `CODEX_REMOTE_SMOKE_PASSWORD` when the default profile is not enough.
 `npm run qa:release` checks version consistency, icons, npm scripts, and release artifacts for the current app version.
 
 ## Shortcuts and Actions
 
 - `Cmd/Ctrl+K`: command palette for a new dialog, settings, project creation, refresh, reconnect, CLI check, and disconnect.
+- `Cmd/Ctrl+J`: task center.
+- `Cmd/Ctrl+Shift+G`: project workbench.
 - Right-click a chat: pin, rename, or delete with confirmation.
 - Click a project: connect immediately.
+- `New window`: open the selected project with an independent Codex connection.
 
 ## Current Limitations
 
-- Only one project connection is active at a time.
-- Approval requests do not yet have a dedicated polished dialog. This does not affect the default full-access mode.
+- One project connection is active per window; use `New window` for parallel work.
+- Guided plugin marketplace and Codex Cloud flows still use the command runner rather than dedicated wizards.
 - Remote communication uses `stdio://` over SSH, so no remote TCP port needs to be opened.
 - SSH keys or `~/.ssh/config` are recommended for regular use.

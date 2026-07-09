@@ -1,7 +1,9 @@
 import {
+  Activity,
   Archive,
   ArrowLeft,
   ArrowUp,
+  Bell,
   Brain,
   ChevronDown,
   ChevronRight,
@@ -13,6 +15,7 @@ import {
   Folder,
   FolderOpen,
   Gauge,
+  GitBranch,
   History,
   Image as ImageIcon,
   KeyRound,
@@ -21,6 +24,8 @@ import {
   Monitor,
   Moon,
   Paperclip,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Plus,
   Pin,
@@ -40,6 +45,19 @@ import {
 } from "lucide-react";
 import { FormEvent, KeyboardEvent, MouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+
+import { TaskCenter } from "./TaskCenter";
+import { ProjectWorkbench } from "./ProjectWorkbench";
+import { WorkspaceTabs } from "./WorkspaceTabs";
+import { dedupeThreadItems } from "./messageHistory";
+import {
+  loadWorkspaceState,
+  saveWorkspaceState,
+  workspaceChatKey,
+  type WorkspaceChatTab,
+  type WorkspaceState,
+  type WorkspaceTaskRecord
+} from "./workspaceState";
 
 import type {
   AppPreferences,
@@ -71,6 +89,14 @@ import {
   parseTurnEvent,
   type ActiveTurnIdentity
 } from "./taskProtocol";
+
+declare global {
+  interface Window {
+    codexRemote?: {
+      openWorkspace(profileId: string): Promise<boolean>;
+    };
+  }
+}
 
 type ConnectionState = "idle" | "connecting" | "connected";
 type ProfileDraft = Omit<CodexProfile, "id" | "createdAt" | "updatedAt"> & {
@@ -131,6 +157,7 @@ type TaskSummary = {
 };
 type QueuedTask = {
   id: string;
+  workspaceTaskId: string;
   text: string;
   createdAt: number;
   input?: UserInput[];
@@ -202,6 +229,7 @@ type AppUpdatePanelState = {
 const uiStateStorageKey = "codex-remote-ui-state";
 const activeTaskStorageKey = "codex-remote-active-task";
 const recentProjectPathsStorageKey = "codex-remote-recent-project-paths";
+const sidebarCollapsedStorageKey = "codex-remote-sidebar-collapsed";
 
 const defaultUpdateCommand =
   "(set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh) || npm install -g @openai/codex@latest";
@@ -361,6 +389,23 @@ function writeRecentProjectPath(pathValue: string) {
   if (!clean) return;
   const next = [clean, ...readRecentProjectPaths().filter((item) => item !== clean)].slice(0, 8);
   window.localStorage.setItem(recentProjectPathsStorageKey, JSON.stringify(next));
+}
+
+function readSidebarCollapsed() {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(sidebarCollapsedStorageKey) === "1";
+}
+
+function threadDateGroup(updatedAt: number) {
+  const value = new Date(updatedAt * 1000);
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfValue = new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const days = Math.floor((startOfToday - startOfValue) / 86_400_000);
+  if (days <= 0) return "Сегодня";
+  if (days === 1) return "Вчера";
+  if (days < 7) return "На этой неделе";
+  return "Ранее";
 }
 
 const formatDate = (seconds: number) =>
@@ -743,8 +788,7 @@ function reasoningEffortValue(level: AppPreferences["reasoningLevel"]) {
 
 function threadToMessages(thread: CodexThread | null): ChatMessage[] {
   if (!thread?.turns) return [];
-  return thread.turns
-    .flatMap((turn) => turn.items)
+  return dedupeThreadItems(thread.turns)
     .map(itemToMessage)
     .filter((message): message is ChatMessage => Boolean(message));
 }
@@ -867,7 +911,11 @@ function buildMessageDisplay(messages: ChatMessage[]): MessageDisplayItem[] {
 }
 
 function normalizeFilePath(value: string) {
-  return value.trim().replace(/^file:\/\//, "");
+  return value
+    .trim()
+    .replace(/^file:\/\//, "")
+    .replace(/#L\d+(?:-L\d+)?$/i, "")
+    .replace(/(:\d+){1,2}$/, "");
 }
 
 function isLikelyFilePath(value: string) {
@@ -885,7 +933,7 @@ function extractFileReferences(messages: ChatMessage[]): FileSummary[] {
     if (!files.has(key)) {
       files.set(key, {
         key,
-        label: label?.trim() || basenameOf(normalizedPath),
+        label: basenameOf(normalizedPath) || label?.trim() || normalizedPath,
         path: normalizedPath,
         operation
       });
@@ -976,6 +1024,7 @@ function friendlyErrorMessage(value: string) {
 
 export default function App() {
   const initialUiStateRef = useRef(readStoredUiState());
+  const requestedProfileIdRef = useRef(new URLSearchParams(window.location.search).get("profile") || "");
   const [profiles, setProfiles] = useState<CodexProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [connection, setConnection] = useState<ConnectionState>("idle");
@@ -1057,12 +1106,17 @@ export default function App() {
   const [fileMentionResults, setFileMentionResults] = useState<FileSearchResult[]>([]);
   const [isFileMentionLoading, setFileMentionLoading] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
-  const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null);
+  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [showArchivedThreads, setShowArchivedThreads] = useState(false);
   const [recoveryTask, setRecoveryTask] = useState<StoredActiveTask | null>(() => readStoredActiveTask());
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [isReconnectPaused, setReconnectPaused] = useState(false);
   const [recentProjectPaths, setRecentProjectPaths] = useState<string[]>(() => readRecentProjectPaths());
+  const [isSidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
+  const [isTaskCenterOpen, setTaskCenterOpen] = useState(false);
+  const [isProjectWorkbenchOpen, setProjectWorkbenchOpen] = useState(false);
+  const [isSocketReady, setSocketReady] = useState(false);
+  const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(loadWorkspaceState);
 
   const wsRef = useRef<WebSocket | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -1086,12 +1140,19 @@ export default function App() {
   const activeTaskIdentityRef = useRef<ActiveTurnIdentity>({});
   const fileMentionTimerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const profileImportRef = useRef<HTMLInputElement | null>(null);
   const didCheckAppUpdateRef = useRef(false);
+  const workspaceStateRef = useRef(workspaceState);
+  const activeWorkspaceTaskIdRef = useRef("");
+  const pendingWorkspaceTabRef = useRef<WorkspaceChatTab | null>(null);
+  const workspaceSaveTimerRef = useRef<number | null>(null);
+  const didAutoConnectWindowRef = useRef(false);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedProfileId),
     [profiles, selectedProfileId]
   );
+  const approvalRequest = approvalRequests[0] ?? null;
 
   useEffect(() => {
     selectedProfileIdRef.current = selectedProfileId;
@@ -1108,6 +1169,21 @@ export default function App() {
   useEffect(() => {
     connectionRef.current = connection;
   }, [connection]);
+
+  useEffect(() => {
+    workspaceStateRef.current = workspaceState;
+    if (workspaceSaveTimerRef.current) {
+      window.clearTimeout(workspaceSaveTimerRef.current);
+    }
+    workspaceSaveTimerRef.current = window.setTimeout(() => {
+      saveWorkspaceState(workspaceStateRef.current);
+      workspaceSaveTimerRef.current = null;
+    }, 160);
+  }, [workspaceState]);
+
+  useEffect(() => {
+    window.localStorage.setItem(sidebarCollapsedStorageKey, isSidebarCollapsed ? "1" : "0");
+  }, [isSidebarCollapsed]);
 
   useEffect(() => {
     taskQueueRef.current = taskQueue;
@@ -1162,12 +1238,24 @@ export default function App() {
     [sortedThreads, threadMetadata]
   );
 
+  const recentThreadGroups = useMemo(() => {
+    const groups = new Map<string, CodexThread[]>();
+    recentThreads.forEach((thread) => {
+      const key = threadDateGroup(thread.updatedAt);
+      groups.set(key, [...(groups.get(key) ?? []), thread]);
+    });
+    return Array.from(groups.entries()).map(([label, items]) => ({ label, items }));
+  }, [recentThreads]);
+
   const turnDisplay = useMemo(() => buildTurnDisplay(messages), [messages]);
 
   const activeThreadTitle = displayTitleOf(
     activeThread,
     activeThread ? threadMetadata[activeThread.id] : undefined
   );
+  const activeWorkspaceChatKey = selectedProfileId
+    ? workspaceChatKey(selectedProfileId, activeThread?.id || "new")
+    : null;
   const selectedModelValue = selectedProfile?.model ?? "";
   const selectedModelOption = modelOptions.find((option) => option.value === selectedModelValue);
   const selectedModelLabel = selectedModelValue
@@ -1248,6 +1336,10 @@ export default function App() {
       if (fileMentionTimerRef.current) {
         window.clearTimeout(fileMentionTimerRef.current);
       }
+      if (workspaceSaveTimerRef.current) {
+        window.clearTimeout(workspaceSaveTimerRef.current);
+        saveWorkspaceState(workspaceStateRef.current);
+      }
     };
   }, []);
 
@@ -1277,6 +1369,51 @@ export default function App() {
       writeStoredUiState({ activeThreadId: activeThread.id });
     }
   }, [activeThread?.id]);
+
+  useEffect(() => {
+    if (!activeWorkspaceChatKey) return;
+    setWorkspaceState((current) => {
+      if (current.drafts[activeWorkspaceChatKey]?.text === input) return current;
+      return {
+        ...current,
+        drafts: {
+          ...current.drafts,
+          [activeWorkspaceChatKey]: { text: input, updatedAt: Date.now() }
+        }
+      };
+    });
+  }, [activeWorkspaceChatKey, input]);
+
+  useEffect(() => {
+    if (!activeThread || !selectedProfile) return;
+    const key = workspaceChatKey(selectedProfile.id, activeThread.id);
+    const tab: WorkspaceChatTab = {
+      profileId: selectedProfile.id,
+      threadId: activeThread.id,
+      title: activeThreadTitle,
+      path: selectedProfile.projectPath
+    };
+    setWorkspaceState((current) => ({
+      ...current,
+      activeChatKey: key,
+      openTabs: current.openTabs.some(
+        (item) => workspaceChatKey(item.profileId, item.threadId) === key
+      )
+        ? current.openTabs.map((item) =>
+            workspaceChatKey(item.profileId, item.threadId) === key ? tab : item
+          )
+        : [...current.openTabs, tab].slice(-12)
+    }));
+  }, [activeThread?.id, activeThreadTitle, selectedProfile?.id, selectedProfile?.projectPath]);
+
+  useEffect(() => {
+    const pendingTab = pendingWorkspaceTabRef.current;
+    if (!pendingTab || connection !== "connected" || pendingTab.profileId !== selectedProfileId) return;
+    const thread = threads.find((item) => item.id === pendingTab.threadId);
+    if (!thread) return;
+    pendingWorkspaceTabRef.current = null;
+    selectThread(thread);
+  }, [connection, selectedProfileId, threads]);
 
   useEffect(() => {
     const match = input.match(/(?:^|\s)@([^\s@]{1,80})$/);
@@ -1314,6 +1451,18 @@ export default function App() {
         setCommandOpen(true);
         return;
       }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "j") {
+        event.preventDefault();
+        closeTransientMenus();
+        setTaskCenterOpen(true);
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "g") {
+        event.preventDefault();
+        closeTransientMenus();
+        if (selectedProfileIdRef.current) setProjectWorkbenchOpen(true);
+        return;
+      }
       if (event.key === "Escape") {
         closeTransientMenus();
         setCommandOpen(false);
@@ -1344,13 +1493,30 @@ export default function App() {
       handleServerMessage(message);
     };
 
+    socket.onopen = () => setSocketReady(true);
+
     socket.onclose = () => {
+      setSocketReady(false);
       setConnection("idle");
       setCodexStatus("connection closed");
     };
 
     return () => socket.close();
   }, []);
+
+  useEffect(() => {
+    const requestedProfileId = requestedProfileIdRef.current;
+    if (
+      didAutoConnectWindowRef.current ||
+      !requestedProfileId ||
+      !isSocketReady ||
+      !profiles.some((profile) => profile.id === requestedProfileId)
+    ) {
+      return;
+    }
+    didAutoConnectWindowRef.current = true;
+    connectProject(requestedProfileId);
+  }, [isSocketReady, profiles]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -1384,12 +1550,51 @@ export default function App() {
       if (current && data.profiles.some((profile) => profile.id === current)) {
         return current;
       }
+      const requestedProfileId = requestedProfileIdRef.current;
+      if (requestedProfileId && data.profiles.some((profile) => profile.id === requestedProfileId)) {
+        return requestedProfileId;
+      }
       const storedProfileId = initialUiStateRef.current.selectedProfileId;
       if (storedProfileId && data.profiles.some((profile) => profile.id === storedProfileId)) {
         return storedProfileId;
       }
       return data.profiles[0]?.id || "";
     });
+  }
+
+  async function exportProfiles() {
+    try {
+      const response = await fetch("/api/profiles/export");
+      const data = await response.json() as { bundle?: unknown; error?: string };
+      if (!response.ok || !data.bundle) throw new Error(data.error || "Не удалось экспортировать проекты.");
+      const blob = new Blob([`${JSON.stringify(data.bundle, null, 2)}\n`], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `codex-remote-projects-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      addLog("Проекты экспортированы без паролей");
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Не удалось экспортировать проекты.");
+    }
+  }
+
+  async function importProfiles(file: File) {
+    try {
+      const bundle = JSON.parse(await file.text()) as unknown;
+      const response = await fetch("/api/profiles/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bundle })
+      });
+      const data = await response.json() as { imported?: CodexProfile[]; skipped?: string[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "Не удалось импортировать проекты.");
+      await loadProfiles();
+      addLog(`Импортировано проектов: ${data.imported?.length ?? 0}; пропущено: ${data.skipped?.length ?? 0}`);
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : "Не удалось импортировать проекты.");
+    }
   }
 
   async function loadPreferences() {
@@ -1973,13 +2178,66 @@ export default function App() {
     setTaskTokens(next);
   }
 
-  function startTask(text: string, inputItems: UserInput[] = [], taskAttachments: ComposerAttachment[] = []) {
+  async function createTaskCheckpoint(profileId: string, label: string, workspaceTaskId: string) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 12_000);
+    try {
+      const response = await fetch("/api/project/checkpoint", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profileId,
+          password: sessionPasswordsRef.current[profileId] || undefined,
+          label
+        }),
+        signal: controller.signal
+      });
+      const data = await response.json() as {
+        checkpoint?: WorkspaceTaskRecord["checkpoint"];
+        error?: string;
+      };
+      if (!response.ok || !data.checkpoint) {
+        throw new Error(data.error || "Не удалось создать контрольную точку.");
+      }
+      updateWorkspaceTask(workspaceTaskId, { checkpoint: data.checkpoint });
+      addLog(`Контрольная точка ${data.checkpoint.commit.slice(0, 7)} создана`);
+    } catch (checkpointError) {
+      const message = checkpointError instanceof DOMException && checkpointError.name === "AbortError"
+        ? "превышено время ожидания"
+        : checkpointError instanceof Error
+          ? checkpointError.message
+          : "неизвестная ошибка";
+      addLog(`Контрольная точка пропущена: ${message}`);
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
+  function startTask(
+    text: string,
+    inputItems: UserInput[] = [],
+    taskAttachments: ComposerAttachment[] = [],
+    workspaceTaskId = `task-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  ) {
     const clean = text.trim();
     if ((!clean && inputItems.length === 0) || connectionRef.current !== "connected") return;
 
     const profileId = selectedProfileIdRef.current;
     const threadId = activeThreadRef.current?.id;
     const title = previewText(clean || attachmentSummary(taskAttachments) || "Вложения");
+    activeWorkspaceTaskIdRef.current = workspaceTaskId;
+    upsertWorkspaceTask({
+      id: workspaceTaskId,
+      profileId,
+      threadId,
+      title,
+      path: selectedProfileRef.current?.projectPath,
+      status: "running",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      startedAt: Date.now(),
+      unread: false
+    });
     resetTaskCollectors();
     activeTaskIdentityRef.current = { threadId };
     setError("");
@@ -1988,7 +2246,7 @@ export default function App() {
     setTaskStartedAt(startedAt);
     taskStartedAtRef.current = startedAt;
     setTaskCompletedAt(null);
-    setTaskActivity("Отправляю задачу");
+    setTaskActivity("Создаю контрольную точку");
     setTaskTokens(null);
     taskTokensRef.current = null;
     writeStoredActiveTask({
@@ -2009,29 +2267,61 @@ export default function App() {
         ].filter(Boolean).join("")
       }
     ]);
-    send({
-      type: "sendMessage",
-      threadId,
-      text: clean,
-      input: inputItems,
-      effort: reasoningEffortValue(preferencesRef.current.reasoningLevel),
-      serviceTier: preferencesRef.current.responseSpeed === "fast" ? "fast" : null
-    });
+    const dispatchTask = () => {
+      if (connectionRef.current !== "connected") {
+        setBusy(false);
+        updateWorkspaceTask(workspaceTaskId, {
+          status: "interrupted",
+          completedAt: Date.now(),
+          unread: true,
+          summary: "Подключение потеряно до запуска задачи"
+        });
+        return;
+      }
+      setTaskActivity("Отправляю задачу");
+      send({
+        type: "sendMessage",
+        threadId,
+        text: clean,
+        input: inputItems,
+        effort: reasoningEffortValue(preferencesRef.current.reasoningLevel),
+        serviceTier: preferencesRef.current.responseSpeed === "fast" ? "fast" : null
+      });
+    };
+    if (profileId) {
+      void createTaskCheckpoint(profileId, title, workspaceTaskId).finally(dispatchTask);
+    } else {
+      dispatchTask();
+    }
   }
 
   function enqueueTask(text: string, inputItems: UserInput[] = [], taskAttachments: ComposerAttachment[] = []) {
     const clean = text.trim();
     if (!clean && inputItems.length === 0) return;
+    const workspaceTaskId = `task-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const title = previewText(clean || attachmentSummary(taskAttachments) || "Вложения");
     setTaskQueue((current) => [
       ...current,
       {
         id: `queue-${Date.now()}-${current.length}`,
+        workspaceTaskId,
         text: clean,
         input: inputItems,
         attachments: taskAttachments,
         createdAt: Date.now()
       }
     ]);
+    upsertWorkspaceTask({
+      id: workspaceTaskId,
+      profileId: selectedProfileIdRef.current,
+      threadId: activeThreadRef.current?.id,
+      title,
+      path: selectedProfileRef.current?.projectPath,
+      status: "waiting",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      unread: false
+    });
     addLog("Задача добавлена в очередь");
   }
 
@@ -2039,7 +2329,7 @@ export default function App() {
     const [next] = taskQueueRef.current;
     if (!next) return;
     setTaskQueue((current) => current.filter((item) => item.id !== next.id));
-    startTask(next.text, next.input ?? [], next.attachments ?? []);
+    startTask(next.text, next.input ?? [], next.attachments ?? [], next.workspaceTaskId);
   }
 
   function scheduleReconnect(reason: string) {
@@ -2130,7 +2420,13 @@ export default function App() {
     }
 
     if (message.type === "threads") {
-      setThreads(message.result.data || []);
+      const nextThreads = message.result.data || [];
+      setThreads(nextThreads);
+      setActiveThread((current) => {
+        if (!current) return current;
+        const refreshed = nextThreads.find((thread) => thread.id === current.id);
+        return refreshed ? { ...current, ...refreshed, turns: current.turns } : current;
+      });
       addLog(`Прочитано чатов: ${message.result.data?.length ?? 0}`);
       return;
     }
@@ -2138,10 +2434,13 @@ export default function App() {
     if (message.type === "thread") {
       setActiveThread(message.result.thread);
       setMessages(threadToMessages(message.result.thread));
+      setInput(workspaceDraft(selectedProfileIdRef.current, message.result.thread.id));
       setLoadingThreadId("");
       setOpenStepGroups({});
-      setBusy(false);
-      clearActiveTaskIdentity();
+      if (!activeWorkspaceTaskIdRef.current) {
+        setBusy(false);
+        clearActiveTaskIdentity();
+      }
       addLog(`Открыт чат: ${displayTitleOf(message.result.thread, threadMetadata[message.result.thread.id])}`);
       setThreads((current) => {
         const exists = current.some((thread) => thread.id === message.result.thread.id);
@@ -2189,6 +2488,16 @@ export default function App() {
         setReconnectPaused(true);
       }
       addLog(`Ошибка: ${message.message}`);
+      notifyUser("Ошибка Codex Remote", friendlyErrorMessage(message.message));
+      if (activeWorkspaceTaskIdRef.current) {
+        updateWorkspaceTask(activeWorkspaceTaskIdRef.current, {
+          status: "failed",
+          completedAt: Date.now(),
+          summary: friendlyErrorMessage(message.message),
+          unread: true
+        });
+        activeWorkspaceTaskIdRef.current = "";
+      }
       setBusy(false);
       clearActiveTaskIdentity();
       setLoadingThreadId("");
@@ -2207,12 +2516,23 @@ export default function App() {
           "mcpServer/elicitation/request"
         ].includes(notificationMethod)
       ) {
-        setApprovalRequest({
-          requestId: message.message.id,
-          method: notificationMethod,
-          params: message.message.params
+        setApprovalRequests((current) => {
+          const request = {
+            requestId: message.message.id!,
+            method: notificationMethod,
+            params: message.message.params
+          };
+          return current.some((item) => item.requestId === request.requestId)
+            ? current
+            : [...current, request];
         });
         setTaskActivity("Жду подтверждения");
+        notifyUser("Codex ждет решения", approvalTitle(notificationMethod));
+        updateWorkspaceTask(activeWorkspaceTaskIdRef.current, {
+          status: "waiting",
+          summary: approvalTitle(notificationMethod),
+          unread: true
+        });
         return;
       }
       if (notificationMethod) {
@@ -2267,15 +2587,17 @@ export default function App() {
       result
     });
     addLog(`${approvalTitle(approvalRequest.method)}: ${decision}`);
-    setApprovalRequest(null);
+    updateWorkspaceTask(activeWorkspaceTaskIdRef.current, {
+      status: decision === "decline" || decision === "cancel" ? "interrupted" : "running",
+      summary: decision === "decline" || decision === "cancel" ? "Запрос отклонен" : "Работа продолжена",
+      unread: false
+    });
+    setApprovalRequests((current) => current.filter((item) => item.requestId !== approvalRequest.requestId));
   }
 
-  function notifyCompletion() {
+  function notifyUser(title: string, body: string) {
     if (!preferencesRef.current.notifyOnCompletion || typeof window === "undefined") return;
     if (!("Notification" in window)) return;
-
-    const title = "Codex закончил задачу";
-    const body = activeThreadTitle || selectedProfile?.projectPath || "Ответ готов";
     const show = () => new Notification(title, { body });
 
     if (Notification.permission === "granted") {
@@ -2287,9 +2609,20 @@ export default function App() {
     }
   }
 
+  function notifyCompletion() {
+    notifyUser(
+      "Codex закончил задачу",
+      activeThreadTitle || selectedProfile?.projectPath || "Ответ готов"
+    );
+  }
+
   function handleNotification(method: string, params: any) {
     if (method === "thread/started" && params.thread) {
       setActiveThread(params.thread);
+      updateWorkspaceTask(activeWorkspaceTaskIdRef.current, {
+        threadId: params.thread.id,
+        path: selectedProfileRef.current?.projectPath
+      });
       setThreads((current) => [params.thread, ...current.filter((thread) => thread.id !== params.thread.id)]);
     }
 
@@ -2441,7 +2774,7 @@ export default function App() {
             : "Готово"
       );
       setTaskTokens(tokens);
-      setLastTaskSummary({
+      const taskSummary: TaskSummary = {
         id: `summary-${completedAt}`,
         title: activeThreadTitle || "Задача",
         status: decision.status as "completed" | "interrupted" | "failed",
@@ -2452,7 +2785,25 @@ export default function App() {
         commands: taskCommandsRef.current,
         tests: taskCommandsRef.current.filter((command) => isTestLikeCommand(command.command)),
         completedAt
+      };
+      setLastTaskSummary(taskSummary);
+      updateWorkspaceTask(activeWorkspaceTaskIdRef.current, {
+        status: decision.status as WorkspaceTaskRecord["status"],
+        completedAt,
+        unread: true,
+        summary: decision.errorMessage || (
+          decision.status === "completed" ? "Задача завершена" : "Задача остановлена"
+        ),
+        metrics: {
+          durationMs: taskSummary.elapsedMs,
+          inputTokens: tokens?.input,
+          outputTokens: tokens?.output,
+          totalTokens: tokens?.total,
+          filesChanged: taskSummary.files.length,
+          commandsRun: taskSummary.commands.length
+        }
       });
+      activeWorkspaceTaskIdRef.current = "";
       if (decision.status === "failed") {
         setError(decision.errorMessage || "Codex завершил задачу с ошибкой.");
       }
@@ -2506,6 +2857,16 @@ export default function App() {
     }
 
     connectProject(profileId);
+  }
+
+  async function openProjectWindow(profileId = selectedProfileId) {
+    if (!profileId || !window.codexRemote) return;
+    try {
+      await window.codexRemote.openWorkspace(profileId);
+      addLog("Проект открыт в отдельном окне");
+    } catch (windowError) {
+      setError(windowError instanceof Error ? windowError.message : "Не удалось открыть окно проекта.");
+    }
   }
 
   function handleProjectKey(event: KeyboardEvent<HTMLDivElement>, profileId: string) {
@@ -2606,12 +2967,102 @@ export default function App() {
     stopReconnect();
     send({ type: "disconnect" });
     setConnection("idle");
+    if (activeWorkspaceTaskIdRef.current) {
+      updateWorkspaceTask(activeWorkspaceTaskIdRef.current, {
+        status: "interrupted",
+        completedAt: Date.now(),
+        summary: "Подключение остановлено вручную",
+        unread: true
+      });
+      activeWorkspaceTaskIdRef.current = "";
+    }
     setBusy(false);
     clearActiveTaskIdentity();
     setLoadingThreadId("");
     writeStoredActiveTask(null);
     setRecoveryTask(null);
     addLog("Отключено вручную");
+  }
+
+  function workspaceDraft(profileId: string, threadId = "new") {
+    return workspaceStateRef.current.drafts[workspaceChatKey(profileId, threadId)]?.text || "";
+  }
+
+  function upsertWorkspaceTask(task: WorkspaceTaskRecord) {
+    setWorkspaceState((current) => ({
+      ...current,
+      tasks: [task, ...current.tasks.filter((item) => item.id !== task.id)].slice(0, 500)
+    }));
+  }
+
+  function updateWorkspaceTask(taskId: string, patch: Partial<WorkspaceTaskRecord>) {
+    if (!taskId) return;
+    setWorkspaceState((current) => ({
+      ...current,
+      tasks: current.tasks.map((task) =>
+        task.id === taskId ? { ...task, ...patch, updatedAt: Date.now() } : task
+      )
+    }));
+  }
+
+  function markWorkspaceTaskRead(taskId: string) {
+    updateWorkspaceTask(taskId, { unread: false });
+  }
+
+  function markAllWorkspaceTasksRead() {
+    setWorkspaceState((current) => ({
+      ...current,
+      tasks: current.tasks.map((task) => ({ ...task, unread: false }))
+    }));
+  }
+
+  function selectWorkspaceTask(task: WorkspaceTaskRecord) {
+    markWorkspaceTaskRead(task.id);
+    setTaskCenterOpen(false);
+    if (!task.threadId) return;
+    activateWorkspaceTab({
+      profileId: task.profileId,
+      threadId: task.threadId,
+      title: task.title,
+      path: task.path || ""
+    });
+  }
+
+  function activateWorkspaceTab(tab: WorkspaceChatTab) {
+    const key = workspaceChatKey(tab.profileId, tab.threadId);
+    setWorkspaceState((current) => ({ ...current, activeChatKey: key }));
+    if (tab.profileId !== selectedProfileId || connection !== "connected") {
+      pendingWorkspaceTabRef.current = tab;
+      connectProject(tab.profileId);
+      return;
+    }
+    const thread = threads.find((item) => item.id === tab.threadId);
+    if (thread) selectThread(thread);
+  }
+
+  function closeWorkspaceTab(tab: WorkspaceChatTab) {
+    const key = workspaceChatKey(tab.profileId, tab.threadId);
+    const remaining = workspaceStateRef.current.openTabs.filter(
+      (item) => workspaceChatKey(item.profileId, item.threadId) !== key
+    );
+    const wasActive = workspaceStateRef.current.activeChatKey === key;
+    const nextTab = wasActive ? remaining[remaining.length - 1] : undefined;
+    setWorkspaceState((current) => ({
+      ...current,
+      openTabs: remaining,
+      activeChatKey: nextTab
+        ? workspaceChatKey(nextTab.profileId, nextTab.threadId)
+        : wasActive
+          ? null
+          : current.activeChatKey
+    }));
+    if (nextTab) {
+      activateWorkspaceTab(nextTab);
+    } else if (wasActive) {
+      setActiveThread(null);
+      setMessages([]);
+      setInput(workspaceDraft(selectedProfileId));
+    }
   }
 
   function selectThread(thread: CodexThread) {
@@ -2621,6 +3072,7 @@ export default function App() {
     setOpenStepGroups({});
     setTaskCompletedAt(null);
     setLastTaskSummary(null);
+    setInput(workspaceDraft(selectedProfileId, thread.id));
     clearActiveTaskIdentity();
     send({ type: "readThread", threadId: thread.id });
   }
@@ -2632,6 +3084,7 @@ export default function App() {
     setOpenStepGroups({});
     setTaskCompletedAt(null);
     setLastTaskSummary(null);
+    setInput(workspaceDraft(selectedProfileId));
     send({ type: "newThread" });
   }
 
@@ -3150,13 +3603,15 @@ export default function App() {
     `theme-${preferences.theme}`,
     `concept-${preferences.interfaceStyle}`,
     preferences.animations ? "motion-on" : "motion-off",
-    preferences.compactMode ? "compact-mode" : ""
+    preferences.compactMode ? "compact-mode" : "",
+    isSidebarCollapsed ? "sidebar-collapsed" : "",
+    isBusy ? "task-active" : ""
   ]
     .filter(Boolean)
     .join(" ");
   const portalClassName = rootClassName.replace("app-shell", "app-portal");
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.3.0";
+  const appVersion = "1.4.0";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -3168,6 +3623,29 @@ export default function App() {
         icon: <MessageSquare size={15} />,
         disabled: connection !== "connected",
         run: newThread
+      },
+      {
+        id: "task-center",
+        label: "Центр задач",
+        detail: "активные, ожидающие и завершенные задачи",
+        icon: <Activity size={15} />,
+        run: () => setTaskCenterOpen(true)
+      },
+      {
+        id: "project-workbench",
+        label: "Проект: Git, сервер и инструкции",
+        detail: selectedProfile?.projectPath || "выберите проект",
+        icon: <GitBranch size={15} />,
+        disabled: !selectedProfileId,
+        run: () => setProjectWorkbenchOpen(true)
+      },
+      {
+        id: "project-window",
+        label: "Открыть проект в новом окне",
+        detail: "независимое подключение для параллельной задачи",
+        icon: <Monitor size={15} />,
+        disabled: !selectedProfileId || !window.codexRemote,
+        run: () => void openProjectWindow()
       },
       {
         id: "settings",
@@ -3462,8 +3940,17 @@ export default function App() {
 
   return (
     <main className={rootClassName}>
-      <div className="window-titlebar" aria-hidden="true">
-        <span>Codex Remote</span>
+      <div className="window-titlebar">
+        <span aria-hidden="true">Codex Remote</span>
+        <button
+          type="button"
+          className="titlebar-sidebar-toggle"
+          onClick={() => setSidebarCollapsed((current) => !current)}
+          title={isSidebarCollapsed ? "Развернуть боковую панель" : "Свернуть боковую панель"}
+          aria-label={isSidebarCollapsed ? "Развернуть боковую панель" : "Свернуть боковую панель"}
+        >
+          {isSidebarCollapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+        </button>
       </div>
 
       <aside className="sidebar">
@@ -3471,15 +3958,16 @@ export default function App() {
           <div className="section-head">
             <div>
               <Folder size={15} />
-              <span>Проекты</span>
+              {!isSidebarCollapsed && <span>Проекты</span>}
             </div>
             <button
               className="small-command"
               onClick={() => openProfile(undefined, selectedProfile)}
               title="Новый проект или папка"
+              aria-label="Новый проект или папка"
             >
               <Plus size={14} />
-              Проект
+              {!isSidebarCollapsed && <span>Проект</span>}
             </button>
           </div>
 
@@ -3488,7 +3976,7 @@ export default function App() {
               <section key={group.key} className="project-group">
                 <div className="server-row">
                   <Server size={13} />
-                  <span>{group.label}</span>
+                  {!isSidebarCollapsed && <span>{group.label}</span>}
                 </div>
                 {group.profiles.map((profile) => {
                   const isActiveProject = profile.id === selectedProfileId;
@@ -3516,12 +4004,14 @@ export default function App() {
                       aria-label={`${projectTitle}. ${projectStateLabel}`}
                     >
                       <Folder className="project-icon" size={15} />
-                      <span className="project-copy">
-                        <span className="project-name-line">
-                          <span className="project-name">{projectTitle}</span>
+                      {!isSidebarCollapsed && (
+                        <span className="project-copy">
+                          <span className="project-name-line">
+                            <span className="project-name">{projectTitle}</span>
+                          </span>
+                          <small className="project-path">{profile.projectPath}</small>
                         </span>
-                        <small className="project-path">{profile.projectPath}</small>
-                      </span>
+                      )}
                       {canDisconnectProject && (
                         <button
                           type="button"
@@ -3553,61 +4043,104 @@ export default function App() {
           </div>
         </section>
 
-        <div className="session-head">
-          <div>
-            <History size={15} />
-            <span>Чаты</span>
-            <small>{visibleThreads.length}</small>
-          </div>
-          <button className="new-dialog-button" onClick={newThread} disabled={connection !== "connected"}>
-            <Plus size={14} />
-            Новый диалог
-          </button>
-        </div>
+        {!isSidebarCollapsed && (
+          <>
+            <div className="session-head">
+              <div>
+                <History size={15} />
+                <span>Чаты</span>
+                <small>{visibleThreads.length}</small>
+              </div>
+              <button className="new-dialog-button" onClick={newThread} disabled={connection !== "connected"}>
+                <Plus size={14} />
+                Новый диалог
+              </button>
+            </div>
 
-        <div className="session-mode-toggle" aria-label="Режим списка чатов">
+            <div className="session-mode-toggle" aria-label="Режим списка чатов">
+              <button
+                type="button"
+                className={!showArchivedThreads ? "active" : ""}
+                onClick={() => setShowArchivedThreads(false)}
+                aria-pressed={!showArchivedThreads}
+              >
+                Активные
+              </button>
+              <button
+                type="button"
+                className={showArchivedThreads ? "active" : ""}
+                onClick={() => setShowArchivedThreads(true)}
+                aria-pressed={showArchivedThreads}
+              >
+                <Archive size={13} />
+                Архив
+              </button>
+            </div>
+
+            <div className="search-box">
+              <Search size={15} />
+              <input
+                value={search}
+                onChange={(event) => refreshThreads(event.target.value)}
+                placeholder="Поиск чатов"
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="thread-list">
+              {pinnedThreads.length > 0 && (
+                <div className="thread-group-label">Закрепленные</div>
+              )}
+              {pinnedThreads.map(renderThreadRow)}
+              {recentThreadGroups.map((group) => (
+                <section className="thread-date-group" key={group.label}>
+                  <div className="thread-group-label">{group.label}</div>
+                  {group.items.map(renderThreadRow)}
+                </section>
+              ))}
+              {connection === "connected" && visibleThreads.length === 0 && (
+                <div className="empty-note">{showArchivedThreads ? "В архиве пусто." : "В этой папке пока нет чатов."}</div>
+              )}
+            </div>
+          </>
+        )}
+
+        <nav className="sidebar-footer" aria-label="Инструменты приложения">
           <button
             type="button"
-            className={!showArchivedThreads ? "active" : ""}
-            onClick={() => setShowArchivedThreads(false)}
-            aria-pressed={!showArchivedThreads}
+            onClick={() => setProjectWorkbenchOpen(true)}
+            title="Git, сервер и инструкции"
+            disabled={!selectedProfileId}
           >
-            Активные
+            <GitBranch size={15} />
+            {!isSidebarCollapsed && <span>Проект</span>}
           </button>
-          <button
-            type="button"
-            className={showArchivedThreads ? "active" : ""}
-            onClick={() => setShowArchivedThreads(true)}
-            aria-pressed={showArchivedThreads}
-          >
-            <Archive size={13} />
-            Архив
+          <button type="button" onClick={() => setTaskCenterOpen(true)} title="Центр задач">
+            <Activity size={15} />
+            {!isSidebarCollapsed && <span>Задачи</span>}
+            {!isSidebarCollapsed && taskQueue.length > 0 && <small>{taskQueue.length}</small>}
           </button>
-        </div>
-
-        <div className="search-box">
-          <Search size={15} />
-          <input
-            value={search}
-            onChange={(event) => refreshThreads(event.target.value)}
-            placeholder="Поиск чатов"
-            autoComplete="off"
-          />
-        </div>
-
-        <div className="thread-list">
-          {pinnedThreads.length > 0 && (
-            <div className="thread-group-label">Закрепленные</div>
+          {window.codexRemote && (
+            <button
+              type="button"
+              onClick={() => void openProjectWindow()}
+              title="Открыть проект в отдельном окне"
+              disabled={!selectedProfileId}
+            >
+              <Monitor size={15} />
+              {!isSidebarCollapsed && <span>Новое окно</span>}
+            </button>
           )}
-          {pinnedThreads.map(renderThreadRow)}
-          {pinnedThreads.length > 0 && recentThreads.length > 0 && (
-            <div className="thread-group-label">Недавние</div>
-          )}
-          {recentThreads.map(renderThreadRow)}
-          {connection === "connected" && visibleThreads.length === 0 && (
-            <div className="empty-note">{showArchivedThreads ? "В архиве пусто." : "В этой папке пока нет чатов."}</div>
-          )}
-        </div>
+          <button type="button" onClick={() => setJournalOpen(true)} title="Журнал событий">
+            <Bell size={15} />
+            {!isSidebarCollapsed && <span>События</span>}
+            {!isSidebarCollapsed && logs.length > 0 && <small>{Math.min(logs.length, 99)}</small>}
+          </button>
+          <button type="button" onClick={openSettings} title="Настройки">
+            <SlidersHorizontal size={15} />
+            {!isSidebarCollapsed && <span>Настройки</span>}
+          </button>
+        </nav>
       </aside>
 
       <section className="chat">
@@ -3620,8 +4153,8 @@ export default function App() {
             <button className="header-settings" onClick={() => setCommandOpen(true)} title="Команды" aria-label="Команды">
               <Command size={16} />
             </button>
-            <button className="header-settings" onClick={openSettings} title="Настройки" aria-label="Настройки">
-              <SlidersHorizontal size={16} />
+            <button className="header-settings" onClick={() => setTaskCenterOpen(true)} title="Центр задач" aria-label="Центр задач">
+              <Activity size={16} />
             </button>
             <div className={`connection-chip ${connection}`} title={statusText[connection]}>
               <Circle size={7} fill="currentColor" />
@@ -3629,6 +4162,13 @@ export default function App() {
             </div>
           </div>
         </header>
+
+        <WorkspaceTabs
+          tabs={workspaceState.openTabs}
+          activeChatKey={workspaceState.activeChatKey}
+          onActivate={activateWorkspaceTab}
+          onClose={closeWorkspaceTab}
+        />
 
         {error && (
           <div className="error-banner">
@@ -3716,7 +4256,9 @@ export default function App() {
             </div>
           ) : messages.length === 0 ? (
             <div className="welcome">
-              <MessageSquare size={28} />
+              <div className="welcome-mark" aria-hidden="true">
+                <MessageSquare size={26} />
+              </div>
               <h2>Откройте чат или напишите Codex</h2>
               <p>История появится после подключения.</p>
             </div>
@@ -3845,7 +4387,15 @@ export default function App() {
               <small>{formatDate(Math.floor(lastTaskSummary.completedAt / 1000))}</small>
             </div>
             <div className="task-summary-grid">
-              <span>статус <strong>{lastTaskSummary.status}</strong></span>
+              <span>
+                статус <strong>
+                  {lastTaskSummary.status === "completed"
+                    ? "завершено"
+                    : lastTaskSummary.status === "interrupted"
+                      ? "остановлено"
+                      : "ошибка"}
+                </strong>
+              </span>
               <span>время <strong>{formatDuration(lastTaskSummary.elapsedMs)}</strong></span>
               <span>{formatTokens(lastTaskSummary.tokens)}</span>
               <span>команды <strong>{lastTaskSummary.commands.length}</strong></span>
@@ -3882,7 +4432,7 @@ export default function App() {
         )}
 
         {showTaskStatus && (
-          <div className={`task-status ${isBusy ? "working" : "done"}`}>
+          <div className={`task-status ${isBusy ? "working" : "done"}`} aria-live="polite">
             <div className="task-status-main">
               {isBusy ? <Loader2 size={15} className="spin" /> : <Check size={15} />}
               <span>{isBusy ? "Codex работает" : "Codex закончил"}</span>
@@ -3907,7 +4457,7 @@ export default function App() {
           </div>
         )}
 
-        <form className="composer" onSubmit={submit}>
+        <form className={`composer ${isBusy ? "working" : ""}`} onSubmit={submit}>
           <div
             className="composer-box"
             onDragOver={(event) => {
@@ -4542,7 +5092,10 @@ export default function App() {
             <div className="modal-head">
               <div>
                 <h2>{approvalTitle(approvalRequest.method)}</h2>
-                <p>{selectedProfile?.projectPath || "Текущая задача"}</p>
+                <p>
+                  {selectedProfile?.projectPath || "Текущая задача"}
+                  {approvalRequests.length > 1 ? ` · ещё ${approvalRequests.length - 1}` : ""}
+                </p>
               </div>
               <button type="button" className="icon-button" onClick={() => respondApproval("decline")}>
                 <X size={16} />
@@ -5299,6 +5852,27 @@ export default function App() {
         </div>
       )}
 
+      {isProjectWorkbenchOpen && selectedProfile && renderLayer(
+        <ProjectWorkbench
+          open
+          profileId={selectedProfile.id}
+          password={sessionPasswords[selectedProfile.id] || undefined}
+          projectName={projectTitleOf(selectedProfile)}
+          onClose={() => setProjectWorkbenchOpen(false)}
+        />
+      )}
+
+      {isTaskCenterOpen && renderLayer(
+        <TaskCenter
+          open
+          tasks={workspaceState.tasks}
+          onClose={() => setTaskCenterOpen(false)}
+          onSelectTask={selectWorkspaceTask}
+          onMarkRead={markWorkspaceTaskRead}
+          onMarkAllRead={markAllWorkspaceTasksRead}
+        />
+      )}
+
       {(isSettingsOpen || isSettingsClosing) && renderLayer(
         <div className={`settings-backdrop ${isSettingsClosing ? "closing" : ""}`} role="presentation">
           <aside className="settings-drawer" aria-label="Настройки">
@@ -5480,6 +6054,34 @@ export default function App() {
                   >
                     Удалить
                   </button>
+                </div>
+              </div>
+              <div className="profile-transfer-card">
+                <div>
+                  <Upload size={15} />
+                  <span>Перенос проектов</span>
+                  <small>Пароли и токены не экспортируются.</small>
+                </div>
+                <div>
+                  <button type="button" className="secondary-button" onClick={() => void exportProfiles()}>
+                    <Download size={14} />
+                    Экспорт
+                  </button>
+                  <button type="button" className="secondary-button" onClick={() => profileImportRef.current?.click()}>
+                    <Upload size={14} />
+                    Импорт
+                  </button>
+                  <input
+                    ref={profileImportRef}
+                    type="file"
+                    accept="application/json,.json"
+                    className="hidden-file-input"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void importProfiles(file);
+                      event.currentTarget.value = "";
+                    }}
+                  />
                 </div>
               </div>
             </section>

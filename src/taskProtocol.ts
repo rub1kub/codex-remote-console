@@ -20,7 +20,7 @@ export type TurnCompletionDecision =
     }
   | {
       shouldComplete: false;
-      reason: "different-thread" | "different-turn" | "non-terminal-status";
+      reason: "different-thread" | "different-turn" | "turn-not-started" | "non-terminal-status";
     };
 
 const terminalStatuses = new Set(["completed", "interrupted", "failed"]);
@@ -98,6 +98,9 @@ export function completionDecisionForActiveTask(
   }
   if (current.turnId && next.turnId && current.turnId !== next.turnId) {
     return { shouldComplete: false, reason: "different-turn" };
+  }
+  if (!current.turnId) {
+    return { shouldComplete: false, reason: "turn-not-started" };
   }
 
   const status = next.status || "completed";

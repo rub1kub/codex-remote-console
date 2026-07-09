@@ -60,6 +60,14 @@ assert.deepEqual(
 );
 
 assert.deepEqual(
+  completionDecisionForActiveTask(
+    { threadId: "thread-current" },
+    { threadId: "thread-current", turn: { id: "turn-old", status: "completed" } }
+  ),
+  { shouldComplete: false, reason: "turn-not-started" }
+);
+
+assert.deepEqual(
   completionDecisionForActiveTask(active, {
     threadId: "thread-old",
     turn: { id: "turn-current", status: "completed" }

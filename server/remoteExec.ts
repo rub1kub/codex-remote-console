@@ -445,17 +445,48 @@ function sectionBody(sections: Array<{ title: string; body: string }>, title: st
   return sections.find((section) => section.title === title)?.body.trim() ?? "";
 }
 
+const projectConfinementPrelude = [
+  "project_realpath(){",
+  '  local resolved target_dir target_name;',
+  '  if command -v realpath >/dev/null 2>&1; then command realpath "$1"; return; fi;',
+  '  if command -v readlink >/dev/null 2>&1; then resolved="$(readlink -f "$1" 2>/dev/null)" && [ -n "$resolved" ] && { printf "%s\\n" "$resolved"; return; }; fi;',
+  '  if [ -d "$1" ]; then (cd -P -- "$1" 2>/dev/null && pwd -P); return; fi;',
+  '  target_dir="$(dirname "$1")"; target_name="$(basename "$1")";',
+  '  (cd -P -- "$target_dir" 2>/dev/null && [ ! -L "$target_name" ] && printf "%s/%s\\n" "$(pwd -P)" "$target_name");',
+  "}",
+  'PROJECT_ROOT="$(project_realpath . 2>/dev/null)"',
+  'if [ -z "$PROJECT_ROOT" ] || [ ! -d "$PROJECT_ROOT" ]; then printf "project root unavailable\\n" >&2; exit 90; fi',
+  "project_path_is_inside(){",
+  '  [ "$PROJECT_ROOT" = "/" ] && return 0;',
+  '  case "$1" in "$PROJECT_ROOT"|"$PROJECT_ROOT"/*) return 0;; *) return 1;; esac;',
+  "}",
+  "project_resolve_inside(){",
+  '  local resolved;',
+  '  resolved="$(project_realpath "$1" 2>/dev/null)" || return 1;',
+  '  project_path_is_inside "$resolved" || return 1;',
+  '  printf "%s\\n" "$resolved";',
+  "}",
+  "project_safe_file(){",
+  '  local resolved;',
+  '  resolved="$(project_resolve_inside "$1")" || return 1;',
+  '  [ -f "$resolved" ] || return 1;',
+  '  printf "%s\\n" "$resolved";',
+  "}",
+  'cd -P -- "$PROJECT_ROOT" || exit 90'
+];
+
 function projectHealthCommand(profile: CodexProfile) {
   const codexBin = shellQuotePath(profile.codexBin || "codex");
   return [
     "set +e",
+    ...projectConfinementPrelude,
     'section(){ printf "\\n__CODEX_REMOTE_SECTION__ %s\\n" "$1"; }',
     'diag(){ printf "diag=%s\\t%s\\t%s\\t%s\\n" "$1" "$2" "$3" "$4"; }',
     "section cwd",
-    "pwd",
+    'printf "%s\\n" "$PROJECT_ROOT"',
     "section diagnostics",
     'diag ssh ok "SSH" "команда на проекте выполнена"',
-    'if [ -d . ]; then diag project-dir ok "Папка проекта" "$(pwd -P)"; else diag project-dir fail "Папка проекта" "не найдена"; fi',
+    'if [ -d "$PROJECT_ROOT" ]; then diag project-dir ok "Папка проекта" "$PROJECT_ROOT"; else diag project-dir fail "Папка проекта" "не найдена"; fi',
     'if [ -r . ]; then diag read ok "Чтение" "папка доступна для чтения"; else diag read fail "Чтение" "нет прав на чтение"; fi',
     'if [ -w . ]; then tmp=".codex-remote-write-test-$$"; if (: > "$tmp") 2>/dev/null; then rm -f "$tmp"; diag write ok "Запись" "write-test прошел"; else diag write warn "Запись" "папка помечена writable, но write-test не прошел"; fi; else diag write warn "Запись" "нет прав на запись"; fi',
     'ROOT_COUNT="$(find . -maxdepth 1 -mindepth 1 -not -path "./.git" 2>/dev/null | wc -l | tr -d " ")"; if [ "${ROOT_COUNT:-0}" -gt 0 ]; then diag file-tree ok "Файлы" "найдено ${ROOT_COUNT} элементов в корне"; else diag file-tree warn "Файлы" "корень проекта пуст или недоступен"; fi',
@@ -464,17 +495,18 @@ function projectHealthCommand(profile: CodexProfile) {
     'if [ -n "$CODEX_PATH" ] || [ -n "$CODEX_VERSION" ]; then diag codex ok "Codex CLI" "${CODEX_VERSION:-найден} ${CODEX_PATH}"; else diag codex fail "Codex CLI" "не установлен или не в PATH"; fi',
     `if ${codexBin} app-server --help >/dev/null 2>&1; then diag app-server ok "App server" "команда app-server доступна"; else diag app-server warn "App server" "команда app-server недоступна или CLI старый"; fi`,
     'if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then diag git ok "Git" "репозиторий найден"; else diag git warn "Git" "это не git-репозиторий"; fi',
-    'if [ -f package.json ]; then diag package ok "package.json" "найден"; else diag package info "package.json" "не найден"; fi',
+    'PACKAGE_JSON="$(project_safe_file ./package.json 2>/dev/null)"',
+    'if [ -n "$PACKAGE_JSON" ]; then diag package ok "package.json" "найден"; else diag package info "package.json" "не найден или ведет за пределы проекта"; fi',
     'section git',
-    'if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git status --short; else printf "not a git repository\\n"; fi',
+    'if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git status --short -- .; else printf "not a git repository\\n"; fi',
     'section package',
-    'if [ -f package.json ]; then node -e \'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json","utf8"));console.log("name="+(p.name||""));console.log("scripts="+Object.keys(p.scripts||{}).join(","));\' 2>/dev/null || printf "package.json found\\n"; else printf "package.json not found\\n"; fi',
+    'if [ -n "$PACKAGE_JSON" ]; then node -e \'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));console.log("name="+(p.name||""));console.log("scripts="+Object.keys(p.scripts||{}).join(","));\' "$PACKAGE_JSON" 2>/dev/null || printf "package.json found\\n"; else printf "package.json not found\\n"; fi',
     'section package-manager',
-    'if [ -f pnpm-lock.yaml ]; then echo pnpm; elif [ -f yarn.lock ]; then echo yarn; elif [ -f bun.lockb ] || [ -f bun.lock ]; then echo bun; elif [ -f package-lock.json ]; then echo npm; else echo ""; fi',
+    'if project_safe_file ./pnpm-lock.yaml >/dev/null; then echo pnpm; elif project_safe_file ./yarn.lock >/dev/null; then echo yarn; elif project_safe_file ./bun.lockb >/dev/null || project_safe_file ./bun.lock >/dev/null; then echo bun; elif project_safe_file ./package-lock.json >/dev/null; then echo npm; else echo ""; fi',
     'section tools',
     'for tool in git node npm pnpm yarn bun python python3 rg; do command -v "$tool" >/dev/null 2>&1 && printf "%s " "$tool"; done; printf "\\n"',
     'section checks',
-    'if [ -f package.json ]; then node -e \'const fs=require("fs");const p=JSON.parse(fs.readFileSync("package.json","utf8"));const scripts=p.scripts||{};for(const key of Object.keys(scripts)){if(/^(test|lint|build|typecheck|check|ci)(:|$)/.test(key)) console.log(key)}\' 2>/dev/null; fi',
+    'if [ -n "$PACKAGE_JSON" ]; then node -e \'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const scripts=p.scripts||{};for(const key of Object.keys(scripts)){if(/^(test|lint|build|typecheck|check|ci)(:|$)/.test(key)) console.log(key)}\' "$PACKAGE_JSON" 2>/dev/null; fi',
     'section logs',
     'find . -maxdepth 3 -type f \\( -name "*.log" -o -name "npm-debug.log*" -o -name "yarn-error.log*" \\) -not -path "./node_modules/*" -not -path "./.git/*" 2>/dev/null | head -5'
   ].join("\n");
@@ -543,18 +575,28 @@ export async function readProjectDiff(
   const cleanFiles = files
     .map((file) => cleanText(file))
     .filter(Boolean)
+    .map((file) => cleanProjectRelativePath(file))
     .slice(0, 30);
   const fileArgs = cleanFiles.length > 0
     ? ` -- ${cleanFiles.map(shellQuote).join(" ")}`
-    : "";
+    : " -- .";
+  const validateFileArgs = cleanFiles.length > 0
+    ? [
+        `for TARGET in ${cleanFiles.map(shellQuote).join(" ")}; do`,
+        '  if [ -e "./$TARGET" ] || [ -L "./$TARGET" ]; then project_resolve_inside "./$TARGET" >/dev/null || { printf "outside project\\n" >&2; exit 2; }; fi;',
+        "done"
+      ]
+    : [];
   const command = [
     "set +e",
+    ...projectConfinementPrelude,
+    ...validateFileArgs,
     'if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then printf "__CODEX_REMOTE_SECTION__ status\\nnot a git repository\\n__CODEX_REMOTE_SECTION__ diff\\n"; exit 0; fi',
     'printf "__CODEX_REMOTE_SECTION__ status\\n"',
-    "git status --short",
+    "git status --short -- .",
     'printf "__CODEX_REMOTE_SECTION__ diff\\n"',
-    `git diff --no-ext-diff --minimal${fileArgs}`,
-    `git diff --cached --no-ext-diff --minimal${fileArgs}`
+    `git --literal-pathspecs diff --no-ext-diff --minimal${fileArgs}`,
+    `git --literal-pathspecs diff --cached --no-ext-diff --minimal${fileArgs}`
   ].join("\n");
   const result = await runProfileCommand(profile, secrets, command);
   const sections = parseSections(result.stdout);
@@ -577,11 +619,16 @@ export async function searchProjectFiles(
 
   const command = [
     "set +e",
+    ...projectConfinementPrelude,
     "if command -v rg >/dev/null 2>&1; then",
     "rg --files --hidden -g '!.git' -g '!node_modules' -g '!dist' -g '!build' 2>/dev/null;",
     "else",
     "find . -path './.git' -prune -o -path './node_modules' -prune -o -path './dist' -prune -o -path './build' -prune -o -type f -print 2>/dev/null | sed 's#^./##';",
-    "fi"
+    "fi | while IFS= read -r file; do",
+    '  file="${file#./}"; [ -n "$file" ] || continue;',
+    '  resolved="$(project_safe_file "./$file" 2>/dev/null)" || continue;',
+    '  printf "%s\\n" "$file";',
+    "done"
   ].join("\n");
   const result = await runProfileCommand(profile, secrets, command);
   return result.stdout
@@ -645,19 +692,21 @@ export async function listProjectFiles(
   const relativePath = cleanProjectRelativePath(directoryPath);
   const command = [
     "set +e",
-    'BASE="$(pwd -P)"',
-    `TARGET=${shellQuotePath(relativePath)}`,
-    'if ! cd "$TARGET" 2>/dev/null; then printf "not a directory\\n" >&2; exit 2; fi',
-    'CURRENT="$(pwd -P)"',
-    'case "$CURRENT" in "$BASE"|"$BASE"/*) ;; *) printf "outside project\\n" >&2; exit 3;; esac',
-    'REL="${CURRENT#$BASE}"; REL="${REL#/}"',
+    ...projectConfinementPrelude,
+    `REQUESTED=${shellQuote(relativePath)}`,
+    'TARGET="./$REQUESTED"',
+    'CURRENT="$(project_resolve_inside "$TARGET" 2>/dev/null)"',
+    'if [ -z "$CURRENT" ] || [ ! -d "$CURRENT" ]; then printf "not a directory or outside project\\n" >&2; exit 2; fi',
+    'cd -P -- "$CURRENT" || exit 2',
+    'if [ "$PROJECT_ROOT" = "/" ]; then REL="${CURRENT#/}"; else REL="${CURRENT#$PROJECT_ROOT}"; REL="${REL#/}"; fi',
     'printf "cwd=%s\\n" "$REL"',
     'for entry in "$CURRENT"/* "$CURRENT"/.[!.]* "$CURRENT"/..?*; do',
     '  [ -e "$entry" ] || continue;',
-    '  name="${entry##*/}"; [ "$name" = "." ] || [ "$name" = ".." ] && continue;',
-    '  rel="${entry#$BASE/}";',
-    '  if [ -d "$entry" ]; then kind=directory; size=0; git=0; pkg=0; [ -d "$entry/.git" ] && git=1; [ -f "$entry/package.json" ] && pkg=1; else kind=file; size="$(wc -c < "$entry" 2>/dev/null | tr -d " ")"; git=0; pkg=0; fi;',
-    '  mtime="$(date -r "$entry" +%s 2>/dev/null || stat -c %Y "$entry" 2>/dev/null || printf 0)";',
+    '  name="${entry##*/}"; if [ "$name" = "." ] || [ "$name" = ".." ]; then continue; fi;',
+    '  entry_real="$(project_resolve_inside "$entry" 2>/dev/null)" || continue;',
+    '  if [ "$PROJECT_ROOT" = "/" ]; then rel="${entry#/}"; else rel="${entry#$PROJECT_ROOT/}"; fi;',
+    '  if [ -d "$entry_real" ]; then kind=directory; size=0; git=0; pkg=0; [ -d "$entry_real/.git" ] && git=1; project_safe_file "$entry_real/package.json" >/dev/null && pkg=1; else kind=file; size="$(wc -c < "$entry_real" 2>/dev/null | tr -d " ")"; git=0; pkg=0; fi;',
+    '  mtime="$(date -r "$entry_real" +%s 2>/dev/null || stat -c %Y "$entry_real" 2>/dev/null || printf 0)";',
     '  printf "entry=%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" "$kind" "$name" "$rel" "${size:-0}" "${mtime:-0}" "$git" "$pkg";',
     "done"
   ].join("\n");
@@ -676,18 +725,14 @@ export async function readProjectFile(
   const relativePath = cleanProjectRelativePath(filePath);
   const command = [
     "set +e",
-    'BASE="$(pwd -P)"',
-    `TARGET=${shellQuotePath(relativePath)}`,
-    'if [ ! -f "$TARGET" ]; then printf "not a file\\n" >&2; exit 2; fi',
-    'TARGET_DIR="$(dirname "$TARGET")"',
-    'TARGET_NAME="$(basename "$TARGET")"',
-    'cd "$TARGET_DIR" || exit 3',
-    'CURRENT="$(pwd -P)"',
-    'TARGET_PATH="$CURRENT/$TARGET_NAME"',
-    'case "$TARGET_PATH" in "$BASE"|"$BASE"/*) ;; *) printf "outside project\\n" >&2; exit 4;; esac',
+    ...projectConfinementPrelude,
+    `REQUESTED=${shellQuote(relativePath)}`,
+    'TARGET="./$REQUESTED"',
+    'TARGET_PATH="$(project_safe_file "$TARGET" 2>/dev/null)"',
+    'if [ -z "$TARGET_PATH" ]; then printf "not a file or outside project\\n" >&2; exit 2; fi',
     'SIZE="$(wc -c < "$TARGET_PATH" 2>/dev/null | tr -d " ")";',
     'printf "__CODEX_REMOTE_SECTION__ meta\\n"',
-    'printf "path=%s\\nsize=%s\\n" "$TARGET_PATH" "${SIZE:-0}"',
+    'printf "path=%s\\nsize=%s\\n" "$REQUESTED" "${SIZE:-0}"',
     'if ! LC_ALL=C grep -Iq . "$TARGET_PATH" 2>/dev/null && [ "${SIZE:-0}" != "0" ]; then printf "binary=1\\n__CODEX_REMOTE_SECTION__ content\\n"; exit 0; fi',
     'printf "binary=0\\ntruncated=%s\\n" "$([ "${SIZE:-0}" -gt 120000 ] && printf 1 || printf 0)"',
     'printf "__CODEX_REMOTE_SECTION__ content\\n"',
@@ -699,16 +744,11 @@ export async function readProjectFile(
   }
   const sections = parseSections(result.stdout);
   const meta = parseKeyValue(sectionBody(sections, "meta"));
-  const absolutePath = meta.path || relativePath;
-  const projectRoot = profile.projectPath.replace(/\/+$/, "");
-  const displayPath = absolutePath.startsWith(`${projectRoot}/`)
-    ? absolutePath.slice(projectRoot.length + 1)
-    : relativePath;
   const size = Number(meta.size) || 0;
   const binary = meta.binary === "1";
   const content = binary ? "" : sectionBody(sections, "content");
   return {
-    path: displayPath,
+    path: meta.path || relativePath,
     content,
     size,
     binary,

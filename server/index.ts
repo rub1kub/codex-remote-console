@@ -6,10 +6,25 @@ import { WebSocketServer, type WebSocket } from "ws";
 
 import { CodexBridge } from "./codexBridge";
 import {
+  AgentsRevisionConflictError,
+  commitProjectChanges,
+  createProjectCheckpoint,
+  getProjectGitStatus,
+  inspectProjectRuntime,
+  listProjectBranches,
+  pushCurrentBranch,
+  readRootAgentsFile,
+  stageProjectPaths,
+  unstageProjectPaths,
+  writeRootAgentsFile
+} from "./projectTools";
+import {
   deleteProfile,
+  exportProfileBundle,
   getProfile,
   getPreferences,
   getThreadMetadata,
+  importProfileBundle,
   listProfiles,
   saveThreadMetadata,
   savePreferences,
@@ -54,6 +69,25 @@ type ServerHandle = {
 function send(ws: WebSocket, payload: unknown) {
   if (ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify(payload));
+  }
+}
+
+function isLoopbackHostname(value: string) {
+  const hostname = value.replace(/^\[/, "").replace(/\]$/, "").toLowerCase();
+  return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
+}
+
+function isAllowedLocalRequest(hostHeader?: string, originHeader?: string) {
+  const hostValue = (hostHeader || "").trim();
+  const hostname = hostValue.startsWith("[")
+    ? hostValue.slice(1, hostValue.indexOf("]"))
+    : hostValue.split(":")[0];
+  if (!isLoopbackHostname(hostname)) return false;
+  if (!originHeader) return true;
+  try {
+    return isLoopbackHostname(new URL(originHeader).hostname);
+  } catch {
+    return false;
   }
 }
 
@@ -136,6 +170,16 @@ export async function startServer(
     options.isProduction ?? process.env.NODE_ENV === "production";
 
   const app = express();
+  app.use((request, response, next) => {
+    if (!isAllowedLocalRequest(request.headers.host, request.headers.origin)) {
+      response.status(403).json({ error: "Local request required." });
+      return;
+    }
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.setHeader("Referrer-Policy", "no-referrer");
+    response.setHeader("X-Frame-Options", "DENY");
+    next();
+  });
   app.use(express.json({ limit: "25mb" }));
 
   app.get("/api/health", (_request, response) => {
@@ -145,6 +189,22 @@ export async function startServer(
   app.get("/api/profiles", async (_request, response, next) => {
     try {
       response.json({ profiles: await listProfiles() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/profiles/export", async (_request, response, next) => {
+    try {
+      response.json({ bundle: await exportProfileBundle() });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/profiles/import", async (request, response, next) => {
+    try {
+      response.json(await importProfileBundle(request.body?.bundle));
     } catch (error) {
       next(error);
     }
@@ -240,6 +300,110 @@ export async function startServer(
     }
   });
 
+  app.post("/api/project/git/status", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      response.json({ status: await getProjectGitStatus(profile, secrets) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/project/git/branches", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      response.json({ branches: await listProjectBranches(profile, secrets) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/project/git/stage", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      const paths = Array.isArray(request.body?.paths)
+        ? request.body.paths.filter((value: unknown): value is string => typeof value === "string")
+        : [];
+      response.json({ status: await stageProjectPaths(profile, secrets, paths) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/project/git/unstage", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      const paths = Array.isArray(request.body?.paths)
+        ? request.body.paths.filter((value: unknown): value is string => typeof value === "string")
+        : [];
+      response.json({ status: await unstageProjectPaths(profile, secrets, paths) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/project/git/commit", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      const message = typeof request.body?.message === "string" ? request.body.message : "";
+      response.json({ commit: await commitProjectChanges(profile, secrets, message) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/project/git/push", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      response.json({ push: await pushCurrentBranch(profile, secrets) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/project/checkpoint", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      const label = typeof request.body?.label === "string" ? request.body.label : "";
+      response.json({ checkpoint: await createProjectCheckpoint(profile, secrets, label) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/project/runtime", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      response.json({ runtime: await inspectProjectRuntime(profile, secrets) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/project/instructions", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      response.json({ file: await readRootAgentsFile(profile, secrets) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/project/instructions", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      const content = typeof request.body?.content === "string" ? request.body.content : "";
+      const expectedRevision = typeof request.body?.expectedRevision === "string"
+        ? request.body.expectedRevision
+        : "";
+      response.json({
+        file: await writeRootAgentsFile(profile, secrets, content, expectedRevision)
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post("/api/project/diff", async (request, response, next) => {
     try {
       const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
@@ -326,7 +490,13 @@ export async function startServer(
   });
 
   const httpServer = createServer(app);
-  const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+  const wss = new WebSocketServer({
+    server: httpServer,
+    path: "/ws",
+    verifyClient: ({ req }, done) => {
+      done(isAllowedLocalRequest(req.headers.host, req.headers.origin), 403, "Local request required.");
+    }
+  });
 
   wss.on("connection", (ws) => {
     let bridge: CodexBridge | undefined;
@@ -596,6 +766,13 @@ export async function startServer(
       response: express.Response,
       _next: express.NextFunction
     ) => {
+      if (error instanceof AgentsRevisionConflictError) {
+        response.status(409).json({
+          error: error.message,
+          currentRevision: error.currentRevision
+        });
+        return;
+      }
       response.status(400).json({ error: error.message });
     }
   );
