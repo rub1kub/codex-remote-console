@@ -64,6 +64,7 @@ import type {
   UserInput
 } from "./types";
 import {
+  codexReasoningEffortValue,
   completionDecisionForActiveTask,
   isTurnEventForActiveTask,
   mergeTurnIdentity,
@@ -119,6 +120,8 @@ type TaskCommandSummary = {
 type TaskSummary = {
   id: string;
   title: string;
+  status: "completed" | "interrupted" | "failed";
+  errorMessage?: string;
   elapsedMs: number;
   tokens: TaskTokenStats | null;
   files: FileSummary[];
@@ -735,8 +738,7 @@ function diffLineClass(line: string) {
 }
 
 function reasoningEffortValue(level: AppPreferences["reasoningLevel"]) {
-  if (level === "very-high") return "very-high";
-  return level;
+  return codexReasoningEffortValue(level);
 }
 
 function threadToMessages(thread: CodexThread | null): ChatMessage[] {
@@ -2442,6 +2444,8 @@ export default function App() {
       setLastTaskSummary({
         id: `summary-${completedAt}`,
         title: activeThreadTitle || "Задача",
+        status: decision.status as "completed" | "interrupted" | "failed",
+        errorMessage: decision.errorMessage,
         elapsedMs: decision.durationMs ?? completedAt - startedAt,
         tokens,
         files: taskFilesRef.current,
@@ -3820,20 +3824,36 @@ export default function App() {
         </div>
 
         {lastTaskSummary && (
-          <section className="task-summary-card">
+          <section className={`task-summary-card ${lastTaskSummary.status}`}>
             <div className="task-summary-head">
               <div>
-                <Check size={15} />
-                <strong>Итог задачи</strong>
+                {lastTaskSummary.status === "failed" ? (
+                  <X size={15} />
+                ) : lastTaskSummary.status === "interrupted" ? (
+                  <Square size={15} />
+                ) : (
+                  <Check size={15} />
+                )}
+                <strong>
+                  {lastTaskSummary.status === "failed"
+                    ? "Задача не выполнена"
+                    : lastTaskSummary.status === "interrupted"
+                      ? "Задача остановлена"
+                      : "Итог задачи"}
+                </strong>
               </div>
               <small>{formatDate(Math.floor(lastTaskSummary.completedAt / 1000))}</small>
             </div>
             <div className="task-summary-grid">
+              <span>статус <strong>{lastTaskSummary.status}</strong></span>
               <span>время <strong>{formatDuration(lastTaskSummary.elapsedMs)}</strong></span>
               <span>{formatTokens(lastTaskSummary.tokens)}</span>
               <span>команды <strong>{lastTaskSummary.commands.length}</strong></span>
               <span>проверки <strong>{lastTaskSummary.tests.length || "--"}</strong></span>
             </div>
+            {lastTaskSummary.errorMessage && (
+              <div className="task-summary-error">{lastTaskSummary.errorMessage}</div>
+            )}
             {lastTaskSummary.files.length > 0 && (
               <div className="task-summary-files">
                 <button type="button" onClick={() => void openProjectDiff(lastTaskSummary.files)}>

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import {
+  codexReasoningEffortValue,
   completionDecisionForActiveTask,
   isTurnEventForActiveTask,
   mergeTurnIdentity,
@@ -8,6 +9,11 @@ import {
 } from "../src/taskProtocol";
 
 const active = { threadId: "thread-current", turnId: "turn-current" };
+
+assert.equal(codexReasoningEffortValue("low"), "low");
+assert.equal(codexReasoningEffortValue("medium"), "medium");
+assert.equal(codexReasoningEffortValue("high"), "high");
+assert.equal(codexReasoningEffortValue("very-high"), "xhigh");
 
 assert.deepEqual(
   parseTurnEvent({

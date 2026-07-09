@@ -1508,6 +1508,16 @@ textarea:focus {
   box-shadow: 0 1px 0 rgba(24, 30, 26, 0.04);
 }
 
+.task-summary-card.failed {
+  border-color: #f0b8b8;
+  background: #fff6f6;
+}
+
+.task-summary-card.interrupted {
+  border-color: #ead7a7;
+  background: #fffaf0;
+}
+
 .task-summary-head,
 .task-summary-head > div,
 .task-summary-grid,
@@ -1526,6 +1536,14 @@ textarea:focus {
   gap: 7px;
   color: #13735f;
   font-size: 13px;
+}
+
+.task-summary-card.failed .task-summary-head > div {
+  color: #a73535;
+}
+
+.task-summary-card.interrupted .task-summary-head > div {
+  color: #8a6418;
 }
 
 .task-summary-head small {
@@ -1590,6 +1608,16 @@ textarea:focus {
   padding: 4px 0;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.task-summary-error {
+  padding: 8px 10px;
+  border: 1px solid #efcaca;
+  border-radius: 8px;
+  background: #fffafa;
+  color: #933434;
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .task-status {
@@ -4165,6 +4193,30 @@ textarea:focus {
 .theme-dark .task-summary-files button:hover,
 .theme-dark .folder-badges {
   color: #7ce1cb;
+}
+
+.theme-dark .task-summary-card.failed {
+  border-color: #5c2a2d;
+  background: #211617;
+}
+
+.theme-dark .task-summary-card.interrupted {
+  border-color: #59441f;
+  background: #1f1b12;
+}
+
+.theme-dark .task-summary-card.failed .task-summary-head > div {
+  color: #ff9d9d;
+}
+
+.theme-dark .task-summary-card.interrupted .task-summary-head > div {
+  color: #f1c76f;
+}
+
+.theme-dark .task-summary-error {
+  border-color: #5c2a2d;
+  background: #241718;
+  color: #ff9d9d;
 }
 
 .theme-dark .journal-list code,
