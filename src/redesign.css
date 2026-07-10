@@ -1587,6 +1587,24 @@
   line-height: 16px;
 }
 
+/* The collapsed sidebar is narrower than a horizontal toolbar. Keep its
+ * utility actions in one centered vertical rail instead of clipping them. */
+.command-studio .sidebar-collapsed .sidebar-footer {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 9px 0 0;
+}
+
+.command-studio .sidebar-collapsed .sidebar-footer button {
+  flex: 0 0 34px;
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  height: 34px;
+}
+
 .command-studio .chat-header {
   min-height: 56px;
   padding: 9px 16px;
