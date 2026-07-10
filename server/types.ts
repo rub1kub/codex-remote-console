@@ -184,6 +184,9 @@ export type ConnectionSecrets = {
 
 export type AppPreferences = {
   theme: "system" | "light" | "dark";
+  accentColor: string;
+  connectionColor: string;
+  userMessageColor: string;
   interfaceStyle: "native" | "session-first" | "calm-terminal";
   reasoningLevel: "low" | "medium" | "high" | "very-high";
   responseSpeed: "standard" | "fast";

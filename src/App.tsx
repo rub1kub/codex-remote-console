@@ -22,10 +22,12 @@ import {
   Loader2,
   MessageSquare,
   Monitor,
+  MoreHorizontal,
   Moon,
   Paperclip,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightOpen,
   Pencil,
   Plus,
   Pin,
@@ -35,6 +37,7 @@ import {
   Server,
   ShieldAlert,
   SlidersHorizontal,
+  Sparkles,
   Square,
   Sun,
   Terminal,
@@ -43,13 +46,14 @@ import {
   X,
   Zap
 } from "lucide-react";
-import { FormEvent, KeyboardEvent, MouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { TaskCenter } from "./TaskCenter";
 import { ProjectWorkbench } from "./ProjectWorkbench";
-import { WorkspaceTabs } from "./WorkspaceTabs";
 import { dedupeThreadItems } from "./messageHistory";
+import ambientDark from "./assets/ambient-dark.webp";
+import ambientLight from "./assets/ambient-light.webp";
 import {
   loadWorkspaceState,
   saveWorkspaceState,
@@ -236,6 +240,9 @@ const defaultUpdateCommand =
 
 const defaultPreferences: AppPreferences = {
   theme: "system",
+  accentColor: "",
+  connectionColor: "",
+  userMessageColor: "",
   interfaceStyle: "native",
   reasoningLevel: "very-high",
   responseSpeed: "standard",
@@ -1069,6 +1076,7 @@ export default function App() {
   const [deletingThread, setDeletingThread] = useState<CodexThread | null>(null);
   const [pendingDeleteThreadId, setPendingDeleteThreadId] = useState("");
   const [isCommandOpen, setCommandOpen] = useState(false);
+  const [isCommandClosing, setCommandClosing] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
   const [isSettingsClosing, setSettingsClosing] = useState(false);
   const [taskQueue, setTaskQueue] = useState<QueuedTask[]>([]);
@@ -1115,6 +1123,7 @@ export default function App() {
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
   const [isTaskCenterOpen, setTaskCenterOpen] = useState(false);
   const [isProjectWorkbenchOpen, setProjectWorkbenchOpen] = useState(false);
+  const [isResponseInspectorOpen, setResponseInspectorOpen] = useState(false);
   const [isSocketReady, setSocketReady] = useState(false);
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState>(loadWorkspaceState);
 
@@ -1126,6 +1135,8 @@ export default function App() {
   const didRestoreThreadRef = useRef(false);
   const settingsVisibleRef = useRef(false);
   const settingsCloseTimerRef = useRef<number | null>(null);
+  const commandVisibleRef = useRef(false);
+  const commandCloseTimerRef = useRef<number | null>(null);
   const selectedProfileIdRef = useRef("");
   const selectedProfileRef = useRef<CodexProfile | null>(null);
   const activeThreadRef = useRef<CodexThread | null>(null);
@@ -1268,6 +1279,12 @@ export default function App() {
   const selectedSpeedLabel =
     speedOptions.find((option) => option.value === preferences.responseSpeed)?.label ||
     "скорость";
+  const systemThemeIsDark =
+    typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+  const colorFallbackIsDark = preferences.theme === "dark" || (preferences.theme === "system" && systemThemeIsDark);
+  const accentPickerValue = preferences.accentColor || (colorFallbackIsDark ? "#9a79ff" : "#7357e8");
+  const connectionPickerValue = preferences.connectionColor || (colorFallbackIsDark ? "#61cfb2" : "#198c76");
+  const userMessagePickerValue = preferences.userMessageColor || (colorFallbackIsDark ? "#20282d" : "#273036");
   const selectedCliStatus = cliProfileId === selectedProfileId ? cliStatus : null;
   const showFinishedTaskStatus =
     Boolean(taskCompletedAt) && taskNow - (taskCompletedAt ?? 0) < 12_000;
@@ -1291,6 +1308,10 @@ export default function App() {
   const timelineUserCount = messages.filter((message) => message.role === "user").length;
   const timelineCommandCount = messages.filter((message) => message.role === "tool" && message.title?.startsWith("Команда")).length;
   const timelineFileCount = turnDisplay.reduce((count, turn) => count + turn.files.length, 0);
+  const activeTaskCount = Math.max(
+    workspaceState.tasks.filter((task) => task.status === "running" || task.status === "waiting").length,
+    isBusy ? 1 : 0
+  );
 
   useEffect(() => {
     void loadProfiles();
@@ -1447,8 +1468,7 @@ export default function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         closeTransientMenus();
-        setCommandQuery("");
-        setCommandOpen(true);
+        openCommand();
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "j") {
@@ -1465,7 +1485,7 @@ export default function App() {
       }
       if (event.key === "Escape") {
         closeTransientMenus();
-        setCommandOpen(false);
+        closeCommand();
         setFilePanel((current) => ({ ...current, open: false }));
         setMcpPanel((current) => ({ ...current, open: false }));
         setTemplatesPanel({ open: false });
@@ -1661,6 +1681,39 @@ export default function App() {
       setSettingsClosing(false);
       settingsCloseTimerRef.current = null;
     }, 260);
+  }
+
+  function openCommand() {
+    if (commandCloseTimerRef.current) {
+      window.clearTimeout(commandCloseTimerRef.current);
+      commandCloseTimerRef.current = null;
+    }
+    commandVisibleRef.current = true;
+    setCommandClosing(false);
+    setCommandQuery("");
+    setCommandOpen(true);
+  }
+
+  function closeCommand() {
+    if (!commandVisibleRef.current) return;
+
+    if (!preferencesRef.current.animations) {
+      commandVisibleRef.current = false;
+      setCommandClosing(false);
+      setCommandOpen(false);
+      return;
+    }
+
+    setCommandClosing(true);
+    if (commandCloseTimerRef.current) {
+      window.clearTimeout(commandCloseTimerRef.current);
+    }
+    commandCloseTimerRef.current = window.setTimeout(() => {
+      commandVisibleRef.current = false;
+      setCommandOpen(false);
+      setCommandClosing(false);
+      commandCloseTimerRef.current = null;
+    }, 180);
   }
 
   function updateDraft(patch: Partial<ProfileDraft>, resetBrowser = false) {
@@ -3600,18 +3653,29 @@ export default function App() {
   const threadNotFoundRecovery = isThreadNotFoundError(error);
   const rootClassName = [
     "app-shell",
+    "command-studio",
     `theme-${preferences.theme}`,
-    `concept-${preferences.interfaceStyle}`,
     preferences.animations ? "motion-on" : "motion-off",
     preferences.compactMode ? "compact-mode" : "",
     isSidebarCollapsed ? "sidebar-collapsed" : "",
+    isResponseInspectorOpen ? "inspector-open" : "",
     isBusy ? "task-active" : ""
   ]
     .filter(Boolean)
     .join(" ");
   const portalClassName = rootClassName.replace("app-shell", "app-portal");
+  const themeTokenStyle = {
+    ...(preferences.accentColor
+      ? {
+          "--ai-accent": preferences.accentColor,
+          "--ai-accent-strong": preferences.accentColor
+        }
+      : {}),
+    ...(preferences.connectionColor ? { "--connected-accent": preferences.connectionColor } : {}),
+    ...(preferences.userMessageColor ? { "--user-message-bg": preferences.userMessageColor } : {})
+  } as CSSProperties;
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.4.0";
+  const appVersion = "1.4.1";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -3888,7 +3952,23 @@ export default function App() {
   );
   const filteredCommandActions = useMemo(() => {
     const query = commandQuery.trim().toLowerCase();
-    if (!query) return commandActions;
+    if (!query) {
+      const primaryActions = new Set([
+        "new-thread",
+        "task-center",
+        "project-workbench",
+        "health",
+        "diff",
+        "files",
+        "project-commands",
+        "templates",
+        "timeline",
+        "settings",
+        "journal",
+        "reconnect"
+      ]);
+      return commandActions.filter((action) => primaryActions.has(action.id));
+    }
     return commandActions.filter((action) =>
       `${action.label} ${action.detail}`.toLowerCase().includes(query)
     );
@@ -3896,7 +3976,7 @@ export default function App() {
   const renderLayer = (content: ReactNode) =>
     typeof document === "undefined"
       ? content
-      : createPortal(<div className={portalClassName}>{content}</div>, document.body);
+      : createPortal(<div className={portalClassName} style={themeTokenStyle}>{content}</div>, document.body);
 
   const renderThreadRow = (thread: CodexThread) => {
     const pinned = Boolean(threadMetadata[thread.id]?.pinned);
@@ -3916,16 +3996,18 @@ export default function App() {
         </button>
         <div className="thread-actions">
           {isThreadLoading && <Loader2 size={14} className="thread-loading spin" aria-hidden="true" />}
-          <button
-            className="thread-action"
-            onClick={() => void togglePin(thread)}
-            title={pinned ? "Открепить чат" : "Закрепить чат"}
-            aria-label={pinned ? "Открепить чат" : "Закрепить чат"}
-            aria-pressed={pinned}
-            disabled={isDeleting}
-          >
-            <Pin size={14} fill={pinned ? "currentColor" : "none"} />
-          </button>
+          {activeThread?.id !== thread.id && (
+            <button
+              className="thread-action"
+              onClick={() => void togglePin(thread)}
+              title={pinned ? "Открепить чат" : "Закрепить чат"}
+              aria-label={pinned ? "Открепить чат" : "Закрепить чат"}
+              aria-pressed={pinned}
+              disabled={isDeleting}
+            >
+              <Pin size={14} fill={pinned ? "currentColor" : "none"} />
+            </button>
+          )}
         </div>
       </div>
     );
@@ -3933,13 +4015,15 @@ export default function App() {
 
   function runCommandAction(action: CommandAction) {
     if (action.disabled) return;
+    commandVisibleRef.current = false;
+    setCommandClosing(false);
     setCommandOpen(false);
     setCommandQuery("");
     action.run();
   }
 
   return (
-    <main className={rootClassName}>
+    <main className={rootClassName} style={themeTokenStyle}>
       <div className="window-titlebar">
         <span aria-hidden="true">Codex Remote</span>
         <button
@@ -3963,11 +4047,10 @@ export default function App() {
             <button
               className="small-command"
               onClick={() => openProfile(undefined, selectedProfile)}
-              title="Новый проект или папка"
-              aria-label="Новый проект или папка"
+              title="Добавить проект"
+              aria-label="Добавить проект"
             >
               <Plus size={14} />
-              {!isSidebarCollapsed && <span>Проект</span>}
             </button>
           </div>
 
@@ -4053,27 +4136,7 @@ export default function App() {
               </div>
               <button className="new-dialog-button" onClick={newThread} disabled={connection !== "connected"}>
                 <Plus size={14} />
-                Новый диалог
-              </button>
-            </div>
-
-            <div className="session-mode-toggle" aria-label="Режим списка чатов">
-              <button
-                type="button"
-                className={!showArchivedThreads ? "active" : ""}
-                onClick={() => setShowArchivedThreads(false)}
-                aria-pressed={!showArchivedThreads}
-              >
-                Активные
-              </button>
-              <button
-                type="button"
-                className={showArchivedThreads ? "active" : ""}
-                onClick={() => setShowArchivedThreads(true)}
-                aria-pressed={showArchivedThreads}
-              >
-                <Archive size={13} />
-                Архив
+                <span>Новый диалог</span>
               </button>
             </div>
 
@@ -4082,9 +4145,19 @@ export default function App() {
               <input
                 value={search}
                 onChange={(event) => refreshThreads(event.target.value)}
-                placeholder="Поиск чатов"
+                placeholder={showArchivedThreads ? "Поиск в архиве" : "Поиск чатов"}
                 autoComplete="off"
               />
+              <button
+                type="button"
+                className={showArchivedThreads ? "search-filter-button active" : "search-filter-button"}
+                onClick={() => setShowArchivedThreads((current) => !current)}
+                aria-pressed={showArchivedThreads}
+                aria-label={showArchivedThreads ? "Показать активные чаты" : "Открыть архив"}
+                title={showArchivedThreads ? "Активные чаты" : "Архив"}
+              >
+                <Archive size={14} />
+              </button>
             </div>
 
             <div className="thread-list">
@@ -4106,69 +4179,39 @@ export default function App() {
         )}
 
         <nav className="sidebar-footer" aria-label="Инструменты приложения">
-          <button
-            type="button"
-            onClick={() => setProjectWorkbenchOpen(true)}
-            title="Git, сервер и инструкции"
-            disabled={!selectedProfileId}
-          >
-            <GitBranch size={15} />
-            {!isSidebarCollapsed && <span>Проект</span>}
-          </button>
           <button type="button" onClick={() => setTaskCenterOpen(true)} title="Центр задач">
             <Activity size={15} />
-            {!isSidebarCollapsed && <span>Задачи</span>}
-            {!isSidebarCollapsed && taskQueue.length > 0 && <small>{taskQueue.length}</small>}
+            {activeTaskCount > 0 && <small>{activeTaskCount}</small>}
           </button>
-          {window.codexRemote && (
-            <button
-              type="button"
-              onClick={() => void openProjectWindow()}
-              title="Открыть проект в отдельном окне"
-              disabled={!selectedProfileId}
-            >
-              <Monitor size={15} />
-              {!isSidebarCollapsed && <span>Новое окно</span>}
-            </button>
-          )}
           <button type="button" onClick={() => setJournalOpen(true)} title="Журнал событий">
             <Bell size={15} />
-            {!isSidebarCollapsed && <span>События</span>}
-            {!isSidebarCollapsed && logs.length > 0 && <small>{Math.min(logs.length, 99)}</small>}
+            {logs.length > 0 && <small>{Math.min(logs.length, 99)}</small>}
           </button>
           <button type="button" onClick={openSettings} title="Настройки">
             <SlidersHorizontal size={15} />
-            {!isSidebarCollapsed && <span>Настройки</span>}
           </button>
         </nav>
       </aside>
 
-      <section className="chat">
+      <section className={`chat ${isResponseInspectorOpen ? "with-inspector" : ""}`}>
+        <div className="ambient-backdrop" aria-hidden="true">
+          <img className="ambient-image ambient-image-light" src={ambientLight} alt="" />
+          <img className="ambient-image ambient-image-dark" src={ambientDark} alt="" />
+        </div>
         <header className="chat-header">
           <div className="chat-title">
             <h1>{activeThreadTitle}</h1>
             <p>{selectedProfile?.projectPath || "Выберите сервер и папку проекта"}</p>
           </div>
           <div className="header-actions">
-            <button className="header-settings" onClick={() => setCommandOpen(true)} title="Команды" aria-label="Команды">
-              <Command size={16} />
+            <button className="header-settings" onClick={openCommand} title="Команды" aria-label="Команды">
+              <MoreHorizontal size={17} />
             </button>
-            <button className="header-settings" onClick={() => setTaskCenterOpen(true)} title="Центр задач" aria-label="Центр задач">
-              <Activity size={16} />
-            </button>
-            <div className={`connection-chip ${connection}`} title={statusText[connection]}>
+            <span className={`connection-chip ${connection}`} title={statusText[connection]} aria-label={statusText[connection]}>
               <Circle size={7} fill="currentColor" />
-              {statusText[connection]}
-            </div>
+            </span>
           </div>
         </header>
-
-        <WorkspaceTabs
-          tabs={workspaceState.openTabs}
-          activeChatKey={workspaceState.activeChatKey}
-          onActivate={activateWorkspaceTab}
-          onClose={closeWorkspaceTab}
-        />
 
         {error && (
           <div className="error-banner">
@@ -4384,7 +4427,18 @@ export default function App() {
                       : "Итог задачи"}
                 </strong>
               </div>
-              <small>{formatDate(Math.floor(lastTaskSummary.completedAt / 1000))}</small>
+              <div className="task-summary-actions">
+                <small>{formatDate(Math.floor(lastTaskSummary.completedAt / 1000))}</small>
+                <button
+                  type="button"
+                  className="task-summary-inspector"
+                  onClick={() => setResponseInspectorOpen((current) => !current)}
+                  title={isResponseInspectorOpen ? "Закрыть детали задачи" : "Открыть детали задачи"}
+                  aria-label={isResponseInspectorOpen ? "Закрыть детали задачи" : "Открыть детали задачи"}
+                >
+                  <PanelRightOpen size={14} />
+                </button>
+              </div>
             </div>
             <div className="task-summary-grid">
               <span>
@@ -4709,6 +4763,71 @@ export default function App() {
             </div>
           </div>
         </form>
+
+        {isResponseInspectorOpen && (
+          <aside className="response-inspector" aria-label="Детали текущей задачи">
+            <header className="response-inspector-head">
+              <div>
+                <Sparkles size={15} />
+                <strong>Детали задачи</strong>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResponseInspectorOpen(false)}
+                title="Закрыть детали"
+                aria-label="Закрыть детали"
+              >
+                <X size={15} />
+              </button>
+            </header>
+
+            <section className="inspector-status">
+              <span className={`inspector-status-dot ${isBusy ? "running" : ""}`} aria-hidden="true" />
+              <div>
+                <strong>{isBusy ? "Выполняется" : lastTaskSummary ? "Завершено" : "Готово"}</strong>
+                <small>{isBusy ? taskActivity : lastTaskSummary?.title || "Задача не запущена"}</small>
+              </div>
+              {preferences.showTaskTimer && taskStartedAt && <time>{formatDuration(taskElapsedMs)}</time>}
+            </section>
+
+            <section className="inspector-section inspector-metrics">
+              <div><span>Файлы</span><strong>{lastTaskSummary?.files.length ?? timelineFileCount}</strong></div>
+              <div><span>Проверки</span><strong>{lastTaskSummary?.tests.length ?? 0}</strong></div>
+              <div><span>Команды</span><strong>{lastTaskSummary?.commands.length ?? timelineCommandCount}</strong></div>
+              <div><span>Токены</span><strong>{taskTokens?.total?.toLocaleString("ru") || "--"}</strong></div>
+            </section>
+
+            <section className="inspector-section inspector-context">
+              <h3>Контекст</h3>
+              <dl>
+                <div><dt>Проект</dt><dd>{selectedProfile ? projectTitleOf(selectedProfile) : "не выбран"}</dd></div>
+                <div><dt>Путь</dt><dd>{selectedProfile?.projectPath || "--"}</dd></div>
+                <div><dt>Модель</dt><dd>{selectedModelOption?.label || "по умолчанию"}</dd></div>
+                <div><dt>Рассуждение</dt><dd>{selectedReasoningLabel}</dd></div>
+              </dl>
+            </section>
+
+            {lastTaskSummary?.files.length ? (
+              <section className="inspector-section inspector-files">
+                <h3>Изменения</h3>
+                {lastTaskSummary.files.slice(0, 8).map((file) => (
+                  <button key={file.key} type="button" onClick={() => void openProjectDiff([file])}>
+                    <FileText size={13} />
+                    <span>{file.label}</span>
+                    {file.operation && <small>{file.operation}</small>}
+                  </button>
+                ))}
+              </section>
+            ) : null}
+
+            {isBusy && (
+              <button type="button" className="inspector-stop" onClick={() => send({ type: "interrupt" })}>
+                <Square size={13} />
+                Остановить задачу
+              </button>
+            )}
+          </aside>
+        )}
 
         {preferences.showDiagnostics && logs.length > 0 && (
           <details className="diagnostics">
@@ -5709,8 +5828,14 @@ export default function App() {
         </div>
       )}
 
-      {isCommandOpen && renderLayer(
-        <div className="modal-backdrop command-backdrop" role="presentation">
+      {(isCommandOpen || isCommandClosing) && renderLayer(
+        <div
+          className={`modal-backdrop command-backdrop ${isCommandClosing ? "closing" : ""}`}
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeCommand();
+          }}
+        >
           <div className="command-modal" role="dialog" aria-label="Команды">
             <div className="command-search">
               <Command size={16} />
@@ -5727,7 +5852,7 @@ export default function App() {
                 placeholder="Что сделать?"
                 autoFocus
               />
-              <button type="button" onClick={() => setCommandOpen(false)} aria-label="Закрыть">
+              <button type="button" onClick={closeCommand} aria-label="Закрыть">
                 <X size={15} />
               </button>
             </div>
@@ -5874,7 +5999,13 @@ export default function App() {
       )}
 
       {(isSettingsOpen || isSettingsClosing) && renderLayer(
-        <div className={`settings-backdrop ${isSettingsClosing ? "closing" : ""}`} role="presentation">
+        <div
+          className={`settings-backdrop ${isSettingsClosing ? "closing" : ""}`}
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeSettings();
+          }}
+        >
           <aside className="settings-drawer" aria-label="Настройки">
             <div className="modal-head">
               <div>
@@ -6135,29 +6266,43 @@ export default function App() {
                   Система
                 </button>
               </div>
-              <div className="segmented-control concept-control">
-                <button
-                  className={preferences.interfaceStyle === "native" ? "selected" : ""}
-                  onClick={() => void updatePreferences({ interfaceStyle: "native" })}
-                >
-                  <Monitor size={15} />
-                  Обычный
-                </button>
-                <button
-                  className={preferences.interfaceStyle === "session-first" ? "selected" : ""}
-                  onClick={() => void updatePreferences({ interfaceStyle: "session-first" })}
-                >
-                  <History size={15} />
-                  Чаты
-                </button>
-                <button
-                  className={preferences.interfaceStyle === "calm-terminal" ? "selected" : ""}
-                  onClick={() => void updatePreferences({ interfaceStyle: "calm-terminal" })}
-                >
-                  <Terminal size={15} />
-                  Терминал
-                </button>
+              <div className="theme-color-grid" aria-label="Цвета интерфейса">
+                <label className="theme-color-field">
+                  <span>Акцент</span>
+                  <input
+                    type="color"
+                    value={accentPickerValue}
+                    onChange={(event) => void updatePreferences({ accentColor: event.target.value })}
+                    title="Цвет активных элементов"
+                  />
+                </label>
+                <label className="theme-color-field">
+                  <span>Подключение</span>
+                  <input
+                    type="color"
+                    value={connectionPickerValue}
+                    onChange={(event) => void updatePreferences({ connectionColor: event.target.value })}
+                    title="Цвет подключения"
+                  />
+                </label>
+                <label className="theme-color-field">
+                  <span>Мои сообщения</span>
+                  <input
+                    type="color"
+                    value={userMessagePickerValue}
+                    onChange={(event) => void updatePreferences({ userMessageColor: event.target.value })}
+                    title="Цвет пользовательских сообщений"
+                  />
+                </label>
               </div>
+              <button
+                type="button"
+                className="secondary-button theme-reset-button"
+                onClick={() => void updatePreferences({ accentColor: "", connectionColor: "", userMessageColor: "" })}
+                disabled={!preferences.accentColor && !preferences.connectionColor && !preferences.userMessageColor}
+              >
+                Сбросить цвета
+              </button>
               <label className="toggle-row">
                 <span>Анимации и живые индикаторы</span>
                 <input

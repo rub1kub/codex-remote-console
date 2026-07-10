@@ -24,6 +24,9 @@ const defaultUpdateCommand =
 
 const defaultPreferences: AppPreferences = {
   theme: "system",
+  accentColor: "",
+  connectionColor: "",
+  userMessageColor: "",
   interfaceStyle: "native",
   reasoningLevel: "very-high",
   responseSpeed: "standard",
@@ -99,6 +102,12 @@ function cleanText(value: unknown, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
 }
 
+function cleanThemeColor(value: unknown) {
+  if (typeof value !== "string") return "";
+  const color = value.trim();
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : "";
+}
+
 function cleanStringList(value: unknown, fallback: string[] = []) {
   const source = Array.isArray(value) ? value : fallback;
   return source
@@ -136,6 +145,9 @@ function normalizePreferences(input?: Partial<AppPreferences>): AppPreferences {
     theme: ["system", "light", "dark"].includes(input?.theme ?? "")
       ? input!.theme!
       : defaultPreferences.theme,
+    accentColor: cleanThemeColor(input?.accentColor),
+    connectionColor: cleanThemeColor(input?.connectionColor),
+    userMessageColor: cleanThemeColor(input?.userMessageColor),
     interfaceStyle: interfaceStyles.includes(interfaceStyle as AppPreferences["interfaceStyle"])
       ? interfaceStyle as AppPreferences["interfaceStyle"]
       : defaultPreferences.interfaceStyle,

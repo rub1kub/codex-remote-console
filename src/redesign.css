@@ -1,0 +1,1972 @@
+.command-studio {
+  --app-bg: #f4f5f6;
+  --chat-bg: #f8f9fa;
+  --composer-bg: rgba(248, 249, 250, 0.88);
+  --sidebar-bg: #eef0f2;
+  --sidebar-border: #d9dee2;
+  --surface-1: rgba(255, 255, 255, 0.72);
+  --surface-2: rgba(255, 255, 255, 0.9);
+  --surface-3: #ffffff;
+  --surface-hover: rgba(255, 255, 255, 0.78);
+  --surface-active: rgba(115, 87, 232, 0.1);
+  --text-1: #1f262b;
+  --text-2: #56616a;
+  --text-3: #818b92;
+  --line: rgba(76, 91, 101, 0.16);
+  --line-strong: rgba(76, 91, 101, 0.24);
+  --ai-accent: #7357e8;
+  --ai-accent-strong: #6042d8;
+  --ai-accent-soft: rgba(115, 87, 232, 0.13);
+  --connected-accent: #198c76;
+  --warning-accent: #a66f1f;
+  --danger-accent: #be4545;
+  --primary-bg: #20262a;
+  --primary-color: #ffffff;
+  --primary-hover-bg: #101518;
+  --sidebar-width: 292px;
+  --sidebar-padding: 12px;
+  --titlebar-height: 38px;
+  --messages-padding: 22px;
+  color: var(--text-1);
+  background: var(--app-bg);
+}
+
+.app-portal.command-studio {
+  background: transparent;
+}
+
+.command-studio.theme-dark {
+  --app-bg: #0d1216;
+  --chat-bg: #10161b;
+  --composer-bg: rgba(16, 22, 27, 0.9);
+  --sidebar-bg: #0f151a;
+  --sidebar-border: #263038;
+  --surface-1: rgba(25, 33, 40, 0.7);
+  --surface-2: rgba(24, 32, 39, 0.92);
+  --surface-3: #182127;
+  --surface-hover: rgba(38, 48, 57, 0.72);
+  --surface-active: rgba(139, 108, 255, 0.14);
+  --text-1: #edf1f3;
+  --text-2: #aab4ba;
+  --text-3: #748089;
+  --line: rgba(181, 196, 205, 0.14);
+  --line-strong: rgba(181, 196, 205, 0.22);
+  --ai-accent: #9a79ff;
+  --ai-accent-strong: #b098ff;
+  --ai-accent-soft: rgba(154, 121, 255, 0.15);
+  --connected-accent: #61cfb2;
+  --warning-accent: #e0a34e;
+  --danger-accent: #ff7777;
+  --primary-bg: #eef2f4;
+  --primary-color: #11171b;
+  --primary-hover-bg: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  .command-studio.theme-system {
+    --app-bg: #0d1216;
+    --chat-bg: #10161b;
+    --composer-bg: rgba(16, 22, 27, 0.9);
+    --sidebar-bg: #0f151a;
+    --sidebar-border: #263038;
+    --surface-1: rgba(25, 33, 40, 0.7);
+    --surface-2: rgba(24, 32, 39, 0.92);
+    --surface-3: #182127;
+    --surface-hover: rgba(38, 48, 57, 0.72);
+    --surface-active: rgba(139, 108, 255, 0.14);
+    --text-1: #edf1f3;
+    --text-2: #aab4ba;
+    --text-3: #748089;
+    --line: rgba(181, 196, 205, 0.14);
+    --line-strong: rgba(181, 196, 205, 0.22);
+    --ai-accent: #9a79ff;
+    --ai-accent-strong: #b098ff;
+    --ai-accent-soft: rgba(154, 121, 255, 0.15);
+    --connected-accent: #61cfb2;
+    --warning-accent: #e0a34e;
+    --danger-accent: #ff7777;
+    --primary-bg: #eef2f4;
+    --primary-color: #11171b;
+    --primary-hover-bg: #ffffff;
+  }
+}
+
+.command-studio .window-titlebar {
+  position: relative;
+  z-index: 50;
+  height: var(--titlebar-height);
+  padding-right: 12px;
+  border-color: var(--line);
+  background: var(--sidebar-bg);
+  color: var(--text-2);
+}
+
+.command-studio .window-titlebar span {
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.command-studio .titlebar-sidebar-toggle {
+  margin-left: auto;
+  border: 1px solid transparent;
+  color: var(--text-2);
+}
+
+.command-studio .titlebar-sidebar-toggle:hover {
+  border-color: var(--line);
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.command-studio .sidebar {
+  position: relative;
+  z-index: 40;
+  gap: 12px;
+  padding: var(--sidebar-padding);
+  border-color: var(--line);
+  background: var(--sidebar-bg);
+}
+
+.command-studio .section-head,
+.command-studio .session-head {
+  min-height: 30px;
+  padding: 0 2px;
+}
+
+.command-studio .section-head div,
+.command-studio .session-head div {
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.command-studio .section-head small,
+.command-studio .session-head small,
+.command-studio .server-row {
+  color: var(--text-3);
+}
+
+.command-studio .small-command,
+.command-studio .new-dialog-button {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-2);
+}
+
+.command-studio .new-dialog-button {
+  width: auto;
+  padding: 0 9px;
+}
+
+.command-studio .new-dialog-button span {
+  font-size: 11px;
+  font-weight: 740;
+}
+
+.command-studio .small-command:hover,
+.command-studio .new-dialog-button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.command-studio .project-list {
+  max-height: 220px;
+  gap: 8px;
+}
+
+.command-studio .server-row {
+  min-height: 20px;
+  font-size: 10px;
+}
+
+.command-studio .project-row {
+  min-height: 56px;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-1);
+}
+
+.command-studio .project-row:hover {
+  border-color: var(--line);
+  background: var(--surface-hover);
+  transform: none;
+}
+
+.command-studio .project-row.active {
+  border-color: color-mix(in srgb, var(--ai-accent) 24%, var(--line));
+  background: var(--surface-2);
+  box-shadow: inset 2px 0 0 var(--ai-accent);
+}
+
+.command-studio .project-icon,
+.command-studio .project-path {
+  color: var(--text-3);
+}
+
+.command-studio .project-name {
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.command-studio .project-disconnect {
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--danger-accent);
+}
+
+.command-studio .project-disconnect:hover {
+  border-color: color-mix(in srgb, var(--danger-accent) 28%, transparent);
+  background: color-mix(in srgb, var(--danger-accent) 9%, transparent);
+}
+
+.command-studio .search-box {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 28px;
+  gap: 7px;
+  min-height: 36px;
+  padding: 3px 4px 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-3);
+}
+
+.command-studio .search-box input {
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-1);
+  box-shadow: none;
+}
+
+.command-studio .search-filter-button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.command-studio .search-filter-button:hover,
+.command-studio .search-filter-button.active {
+  background: var(--surface-active);
+  color: var(--ai-accent-strong);
+}
+
+.command-studio .thread-list {
+  gap: 2px;
+  padding-right: 2px;
+}
+
+.command-studio .thread-date-group {
+  gap: 2px;
+}
+
+.command-studio .thread-group-label {
+  min-height: 26px;
+  padding: 9px 7px 4px;
+  color: var(--text-3);
+  font-size: 9px;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
+.command-studio .thread-row {
+  min-height: 48px;
+  padding: 2px 3px 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-1);
+}
+
+.command-studio .thread-row:hover {
+  border-color: var(--line);
+  background: var(--surface-hover);
+  transform: none;
+}
+
+.command-studio .thread-row.active {
+  border-color: color-mix(in srgb, var(--ai-accent) 30%, var(--line));
+  background: var(--surface-active);
+  box-shadow: inset 2px 0 0 var(--ai-accent);
+}
+
+.command-studio .thread-main {
+  color: inherit;
+}
+
+.command-studio .thread-main span {
+  color: var(--text-1);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.command-studio .thread-row small {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.command-studio .thread-actions {
+  opacity: 0;
+}
+
+.command-studio .thread-row:hover .thread-actions,
+.command-studio .thread-row.active .thread-actions,
+.command-studio .thread-row.pinned .thread-actions {
+  opacity: 1;
+}
+
+.command-studio .thread-action {
+  color: var(--text-3);
+}
+
+.command-studio .thread-action:hover {
+  background: var(--surface-active);
+  color: var(--ai-accent-strong);
+}
+
+.command-studio .sidebar-footer {
+  gap: 2px;
+  padding-top: 8px;
+  border-color: var(--line);
+}
+
+.command-studio .sidebar-footer button {
+  min-height: 32px;
+  border-radius: 7px;
+  color: var(--text-2);
+}
+
+.command-studio .sidebar-footer button:hover {
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.command-studio .sidebar-footer small {
+  background: var(--surface-active);
+  color: var(--ai-accent-strong);
+}
+
+.command-studio .chat {
+  position: relative;
+  isolation: isolate;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 58px auto auto minmax(0, 1fr) auto auto auto auto auto;
+  background: var(--chat-bg);
+}
+
+.command-studio .chat.with-inspector {
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+
+.command-studio .ambient-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.18;
+  transition: opacity 600ms ease;
+}
+
+.command-studio .ambient-image {
+  position: absolute;
+  inset: -5%;
+  width: 110%;
+  height: 110%;
+  object-fit: cover;
+  transform: scale(1.04) translate3d(-1.5%, -1%, 0);
+  animation: commandStudioAmbient 28s ease-in-out infinite alternate;
+}
+
+.command-studio .ambient-image-dark {
+  display: none;
+}
+
+.command-studio.theme-dark .ambient-image-light {
+  display: none;
+}
+
+.command-studio.theme-dark .ambient-image-dark {
+  display: block;
+}
+
+.command-studio .chat:has(.messages.empty) .ambient-backdrop {
+  opacity: 0.7;
+}
+
+.command-studio.task-active .ambient-backdrop {
+  opacity: 0.34;
+}
+
+@media (prefers-color-scheme: dark) {
+  .command-studio.theme-system .ambient-image-light {
+    display: none;
+  }
+
+  .command-studio.theme-system .ambient-image-dark {
+    display: block;
+  }
+}
+
+.command-studio .chat > :not(.ambient-backdrop):not(.response-inspector) {
+  grid-column: 1;
+}
+
+.command-studio .chat-header {
+  grid-column: 1 / -1 !important;
+  grid-row: 1;
+  z-index: 20;
+  min-height: 58px;
+  padding: 10px 18px;
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--chat-bg) 90%, transparent);
+  backdrop-filter: blur(20px) saturate(125%);
+}
+
+.command-studio .chat-header h1 {
+  color: var(--text-1);
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.command-studio .chat-header p {
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.command-studio .header-actions {
+  gap: 6px;
+}
+
+.command-studio .header-settings,
+.command-studio .active-task-switcher,
+.command-studio .connection-chip {
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-2);
+  box-shadow: none;
+}
+
+.command-studio .header-settings {
+  width: 32px;
+}
+
+.command-studio .header-settings:hover,
+.command-studio .header-settings.active {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.command-studio .active-task-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 740;
+}
+
+.command-studio .active-task-switcher.running {
+  border-color: color-mix(in srgb, var(--ai-accent) 42%, var(--line));
+  background: var(--surface-active);
+  color: var(--ai-accent-strong);
+}
+
+.command-studio .active-task-switcher small {
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 4px;
+  border-radius: 5px;
+  background: var(--ai-accent-soft);
+  font-size: 9px;
+}
+
+.command-studio .connection-chip {
+  gap: 6px;
+  padding: 0 9px;
+  color: var(--text-2);
+  font-size: 10px;
+}
+
+.command-studio .connection-chip.connected {
+  border-color: color-mix(in srgb, var(--connected-accent) 25%, var(--line));
+  background: color-mix(in srgb, var(--connected-accent) 7%, var(--surface-1));
+  color: var(--connected-accent);
+}
+
+.command-studio .error-banner {
+  grid-row: 2;
+}
+
+.command-studio .reconnect-banner {
+  grid-row: 3;
+}
+
+.command-studio .messages {
+  grid-row: 4;
+  z-index: 2;
+  gap: 16px;
+  padding: 22px max(22px, calc((100% - 900px) / 2));
+  background: transparent;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.command-studio .messages.empty {
+  justify-content: center;
+}
+
+.command-studio .welcome,
+.command-studio .thread-loading-state {
+  position: relative;
+  z-index: 2;
+  color: var(--text-2);
+}
+
+.command-studio .welcome h2,
+.command-studio .thread-loading-state h2,
+.command-studio .bootstrap-card h2 {
+  color: var(--text-1);
+  font-size: 16px;
+}
+
+.command-studio .welcome p,
+.command-studio .thread-loading-state p,
+.command-studio .bootstrap-card p {
+  color: var(--text-2);
+}
+
+.command-studio .welcome-mark {
+  width: 48px;
+  height: 48px;
+  border-color: color-mix(in srgb, var(--ai-accent) 35%, transparent);
+  border-radius: 8px;
+  background: var(--ai-accent-soft);
+  color: var(--ai-accent-strong);
+  box-shadow: 0 12px 34px color-mix(in srgb, var(--ai-accent) 16%, transparent);
+}
+
+.command-studio .bootstrap-card {
+  border-color: var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  box-shadow: 0 18px 50px rgba(8, 12, 14, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.command-studio .turn-group {
+  gap: 10px;
+  width: min(900px, 100%);
+  margin: 0 auto;
+}
+
+.command-studio .message,
+.command-studio .message.user {
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  margin: 0;
+}
+
+.command-studio .message-avatar {
+  display: none;
+}
+
+.command-studio .message.user {
+  width: min(680px, 82%);
+  margin-left: auto;
+}
+
+.command-studio .message .message-body,
+.command-studio .message.user .message-body {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+}
+
+.command-studio .message-body,
+.command-studio .steps-summary {
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  box-shadow: 0 8px 30px rgba(20, 27, 32, 0.04);
+  backdrop-filter: blur(14px);
+}
+
+.command-studio .message.user .message-body {
+  justify-self: end;
+  border-color: rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  background: #22292d;
+  color: #ffffff;
+  box-shadow: 0 10px 28px rgba(20, 27, 32, 0.12);
+}
+
+.command-studio.theme-dark .message.user .message-body {
+  background: #20282d;
+}
+
+.command-studio .message.assistant .message-body,
+.command-studio .message.system .message-body {
+  border-top-left-radius: 8px;
+}
+
+.command-studio .message-author,
+.command-studio .message-text {
+  color: var(--text-1);
+}
+
+.command-studio .message-title,
+.command-studio .message.tool .message-text {
+  color: var(--text-2);
+}
+
+.command-studio .message-text {
+  font-size: 13px;
+  line-height: 1.62;
+}
+
+.command-studio .message-head {
+  margin-bottom: 7px;
+}
+
+.command-studio .message-code,
+.command-studio .inline-code,
+.command-studio .file-reference,
+.command-studio .tool-output {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--surface-3) 72%, transparent);
+  color: var(--text-1);
+}
+
+.command-studio .message.tool .message-body {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--surface-1) 74%, transparent);
+}
+
+.command-studio .message.steps-message {
+  margin-bottom: -10px;
+}
+
+.command-studio .steps-summary {
+  min-height: 42px;
+  padding: 0;
+  border-radius: 8px 8px 0 0;
+  border-left-color: color-mix(in srgb, var(--ai-accent) 42%, var(--line));
+  box-shadow: inset 2px 0 0 var(--ai-accent), 0 8px 30px rgba(20, 27, 32, 0.04);
+}
+
+.command-studio .steps-toggle {
+  min-height: 42px;
+  padding: 0 14px;
+  color: var(--text-1);
+}
+
+.command-studio .steps-toggle span {
+  font-size: 12px;
+}
+
+.command-studio .steps-toggle small {
+  border-color: var(--line);
+  border-radius: 6px;
+  color: var(--text-2);
+}
+
+.command-studio .steps-list {
+  border-color: var(--line);
+  background: var(--line);
+}
+
+.command-studio .step-item {
+  background: var(--surface-1);
+}
+
+.command-studio .step-item span,
+.command-studio .step-item.tool p {
+  color: var(--text-3);
+}
+
+.command-studio .step-item p {
+  color: var(--text-1);
+}
+
+.command-studio .steps-message + .message.assistant .message-body {
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+}
+
+.command-studio .files-message {
+  margin-top: -10px;
+}
+
+.command-studio .files-message .message-body {
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  background: color-mix(in srgb, var(--surface-2) 86%, transparent);
+}
+
+.command-studio .file-summary-chip {
+  border-color: var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--connected-accent) 8%, var(--surface-2));
+  color: var(--connected-accent);
+}
+
+.command-studio .task-summary-card {
+  grid-row: 5;
+  gap: 8px;
+  width: min(900px, calc(100% - 44px));
+  margin-bottom: 8px;
+  border-color: var(--line);
+  border-left: 2px solid var(--connected-accent);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-2);
+  box-shadow: none;
+  backdrop-filter: blur(14px);
+}
+
+.command-studio .task-summary-grid {
+  gap: 0;
+}
+
+.command-studio .task-summary-grid span {
+  min-height: 20px;
+  padding: 0 9px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.command-studio .task-summary-grid span:first-child {
+  padding-left: 0;
+}
+
+.command-studio .task-summary-grid span:last-child {
+  border-right: 0;
+}
+
+.command-studio .task-summary-grid strong,
+.command-studio .task-summary-head strong {
+  color: var(--text-1);
+}
+
+.command-studio .task-summary-files button {
+  border-color: var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.command-studio .task-status {
+  grid-row: 6;
+  width: min(900px, calc(100% - 44px));
+  min-height: 34px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border-color: var(--line);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-2);
+  box-shadow: none;
+}
+
+.command-studio .task-status.working {
+  border-color: color-mix(in srgb, var(--ai-accent) 44%, var(--line));
+  background: color-mix(in srgb, var(--ai-accent) 8%, var(--surface-1));
+  color: var(--ai-accent-strong);
+}
+
+.command-studio .task-status-main span {
+  color: var(--text-1);
+  font-size: 11px;
+}
+
+.command-studio .task-status-main small {
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.command-studio .task-status-metrics span {
+  min-height: 20px;
+  border-color: var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.command-studio .queue-status {
+  grid-row: 7;
+  width: min(900px, calc(100% - 44px));
+  border-color: var(--line);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-2);
+}
+
+.command-studio .composer {
+  grid-row: 8;
+  z-index: 22;
+  padding: 12px 20px 16px;
+  border-color: var(--line);
+  background: var(--composer-bg);
+  backdrop-filter: blur(22px) saturate(130%);
+}
+
+.command-studio .composer-box {
+  width: min(900px, 100%);
+  gap: 8px;
+  padding: 7px;
+  border-color: var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  box-shadow: 0 12px 36px rgba(15, 21, 25, 0.08);
+}
+
+.command-studio .composer.working .composer-box,
+.command-studio .composer:focus-within .composer-box {
+  border-color: color-mix(in srgb, var(--ai-accent) 62%, var(--line));
+  box-shadow: 0 0 0 3px var(--ai-accent-soft), 0 16px 42px rgba(76, 53, 170, 0.12);
+}
+
+.command-studio .composer.working .composer-box::before {
+  right: 8px;
+  left: 8px;
+  height: 1px;
+  background: var(--ai-accent);
+  animation-duration: 2.8s;
+}
+
+.command-studio .composer textarea {
+  min-height: 42px;
+  max-height: 170px;
+  padding: 10px 9px;
+  color: var(--text-1);
+  font-size: 13px;
+}
+
+.command-studio .composer textarea::placeholder {
+  color: var(--text-3);
+}
+
+.command-studio .composer-controls {
+  gap: 6px;
+  padding-left: 0;
+}
+
+.command-studio .composer-icon-button,
+.command-studio .composer-control {
+  height: 34px;
+  border-color: var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.command-studio .composer-icon-button {
+  width: 34px;
+}
+
+.command-studio .composer-icon-button:hover:not(:disabled),
+.command-studio .composer-control:hover,
+.command-studio .composer-control.active {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.command-studio .composer-settings-control {
+  max-width: 250px;
+}
+
+.command-studio .composer-settings-control span:first-of-type {
+  color: var(--text-1);
+}
+
+.command-studio .send-button {
+  width: 36px;
+  height: 36px;
+  flex-basis: 36px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.command-studio .send-button:hover:not(:disabled) {
+  box-shadow: 0 8px 24px rgba(15, 21, 25, 0.16);
+}
+
+.command-studio .send-button.stop {
+  border-color: color-mix(in srgb, var(--danger-accent) 42%, transparent);
+  background: color-mix(in srgb, var(--danger-accent) 9%, var(--surface-2));
+  color: var(--danger-accent);
+}
+
+.command-studio .composer-popover,
+.command-studio .composer-suggest,
+.command-studio .thread-context-menu {
+  border-color: var(--line-strong);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-3) 94%, transparent);
+  color: var(--text-1);
+  box-shadow: 0 22px 60px rgba(8, 12, 14, 0.22);
+  backdrop-filter: blur(22px);
+}
+
+.command-studio .popover-section {
+  border-color: var(--line);
+}
+
+.command-studio .popover-option,
+.command-studio .popover-disclosure,
+.command-studio .popover-disclosure-title,
+.command-studio .popover-current {
+  color: var(--text-2);
+}
+
+.command-studio .popover-option:hover,
+.command-studio .popover-disclosure:hover,
+.command-studio .popover-disclosure.open {
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.command-studio .response-inspector {
+  grid-column: 2;
+  grid-row: 2 / 10;
+  z-index: 18;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: auto;
+  border-left: 1px solid var(--line);
+  background: color-mix(in srgb, var(--chat-bg) 92%, transparent);
+  color: var(--text-1);
+  backdrop-filter: blur(24px) saturate(125%);
+  animation: inspectorIn 190ms ease both;
+}
+
+.command-studio .response-inspector-head {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.command-studio .response-inspector-head > div {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ai-accent-strong);
+}
+
+.command-studio .response-inspector-head strong {
+  color: var(--text-1);
+  font-size: 12px;
+}
+
+.command-studio .response-inspector-head button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.command-studio .response-inspector-head button:hover {
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.command-studio .inspector-status {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.command-studio .inspector-status-dot {
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--connected-accent);
+  border-radius: 50%;
+}
+
+.command-studio .inspector-status-dot.running {
+  border-color: var(--ai-accent);
+  box-shadow: 0 0 0 5px var(--ai-accent-soft);
+  animation: ambientPulse 1.8s ease-in-out infinite;
+}
+
+.command-studio .inspector-status > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.command-studio .inspector-status strong,
+.command-studio .inspector-status small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-studio .inspector-status strong {
+  font-size: 12px;
+}
+
+.command-studio .inspector-status small,
+.command-studio .inspector-status time {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.command-studio .inspector-section {
+  padding: 13px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.command-studio .inspector-section h3 {
+  margin: 0 0 10px;
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 780;
+  text-transform: uppercase;
+}
+
+.command-studio .inspector-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  padding: 0;
+  background: var(--line);
+}
+
+.command-studio .inspector-metrics > div {
+  display: grid;
+  gap: 3px;
+  padding: 11px 12px;
+  background: var(--surface-1);
+}
+
+.command-studio .inspector-metrics span,
+.command-studio .inspector-context dt {
+  color: var(--text-3);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.command-studio .inspector-metrics strong {
+  color: var(--text-1);
+  font-size: 13px;
+}
+
+.command-studio .inspector-context dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.command-studio .inspector-context dl div {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.command-studio .inspector-context dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 9px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-studio .inspector-files {
+  display: grid;
+  gap: 3px;
+}
+
+.command-studio .inspector-files button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  text-align: left;
+}
+
+.command-studio .inspector-files button:hover {
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.command-studio .inspector-files button span {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-studio .inspector-files button small {
+  color: var(--connected-accent);
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.command-studio .inspector-stop {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: auto 12px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger-accent) 50%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--danger-accent) 8%, transparent);
+  color: var(--danger-accent);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.command-studio .diagnostics {
+  grid-column: 1;
+  grid-row: 9;
+  border-color: var(--line);
+  background: var(--surface-1);
+  color: var(--text-2);
+}
+
+.command-studio + .app-portal,
+.app-portal.command-studio {
+  color: var(--text-1);
+}
+
+.app-portal.command-studio .modal-backdrop,
+.app-portal.command-studio .settings-backdrop,
+.app-portal.command-studio .project-workbench-layer,
+.app-portal.command-studio .task-center-layer {
+  padding: 12px;
+  background: rgba(5, 8, 10, 0.42);
+  backdrop-filter: blur(8px);
+}
+
+.app-portal.command-studio .profile-modal,
+.app-portal.command-studio .command-modal,
+.app-portal.command-studio .settings-drawer,
+.app-portal.command-studio .project-workbench,
+.app-portal.command-studio .task-center {
+  border: 1px solid var(--line-strong) !important;
+  border-radius: 10px !important;
+  background: var(--chat-bg) !important;
+  color: var(--text-1) !important;
+  box-shadow: 0 28px 90px rgba(3, 7, 9, 0.3) !important;
+}
+
+.app-portal.command-studio .settings-backdrop {
+  align-items: center;
+  justify-content: center;
+}
+
+.app-portal.command-studio .settings-drawer {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 0;
+  width: min(900px, calc(100vw - 24px));
+  height: min(760px, calc(100vh - 24px));
+  padding: 0;
+  animation: preferencesIn 210ms ease both;
+}
+
+.app-portal.command-studio .settings-backdrop.closing .settings-drawer {
+  animation: preferencesOut 220ms ease both;
+}
+
+.app-portal.command-studio .settings-drawer > .modal-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  grid-column: 1 / -1;
+  min-height: 64px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--chat-bg) 92%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.app-portal.command-studio .settings-section {
+  align-content: start;
+  gap: 11px;
+  padding: 16px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+.app-portal.command-studio .settings-section:nth-of-type(even) {
+  border-right: 0;
+}
+
+.app-portal.command-studio .settings-section h3,
+.app-portal.command-studio .settings-section label,
+.app-portal.command-studio .modal-head h2,
+.app-portal.command-studio .about-grid strong {
+  color: var(--text-1);
+}
+
+.app-portal.command-studio .modal-head p,
+.app-portal.command-studio .settings-section p,
+.app-portal.command-studio .about-grid span {
+  color: var(--text-2);
+}
+
+.app-portal.command-studio .cli-status-card,
+.app-portal.command-studio .monitor-grid,
+.app-portal.command-studio .about-grid {
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line);
+}
+
+.app-portal.command-studio .cli-status-card > *,
+.app-portal.command-studio .monitor-grid > *,
+.app-portal.command-studio .about-grid > div {
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-1);
+}
+
+.app-portal.command-studio input,
+.app-portal.command-studio select,
+.app-portal.command-studio textarea,
+.app-portal.command-studio .password-field,
+.app-portal.command-studio .folder-browser,
+.app-portal.command-studio .advanced-details {
+  border-color: var(--line);
+  background: var(--surface-1);
+  color: var(--text-1);
+}
+
+.app-portal.command-studio .secondary-button,
+.app-portal.command-studio .icon-button {
+  border-color: var(--line);
+  background: var(--surface-1);
+  color: var(--text-2);
+}
+
+.app-portal.command-studio .secondary-button:hover,
+.app-portal.command-studio .icon-button:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.app-portal.command-studio .project-workbench-layer,
+.app-portal.command-studio .task-center-layer {
+  align-items: stretch;
+}
+
+.app-portal.command-studio .project-workbench {
+  width: min(700px, calc(100vw - 24px));
+  height: calc(100vh - 24px);
+  animation: sheetIn 210ms ease both;
+}
+
+.app-portal.command-studio .task-center {
+  width: min(420px, calc(100vw - 24px)) !important;
+  height: calc(100vh - 24px);
+  animation: sheetIn 210ms ease both;
+}
+
+.app-portal.command-studio .project-workbench-head,
+.app-portal.command-studio .project-workbench-tabs {
+  border-color: var(--line);
+}
+
+.app-portal.command-studio .project-workbench-tabs {
+  gap: 2px;
+  background: var(--sidebar-bg);
+}
+
+.app-portal.command-studio .project-workbench-tab {
+  border-radius: 7px;
+  color: var(--text-2);
+}
+
+.app-portal.command-studio .project-workbench-tab:hover,
+.app-portal.command-studio .project-workbench-tab.active {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+
+.app-portal.command-studio .task-center-item {
+  border-color: var(--line) !important;
+  background: var(--surface-1) !important;
+  color: var(--text-1) !important;
+}
+
+.app-portal.command-studio .task-center-item:hover {
+  border-color: color-mix(in srgb, var(--ai-accent) 36%, var(--line)) !important;
+  background: var(--surface-hover) !important;
+  transform: none;
+}
+
+.app-portal.command-studio .task-center [role="tab"][aria-selected="true"] {
+  background: var(--ai-accent) !important;
+  color: #ffffff !important;
+}
+
+.app-portal.command-studio .project-workbench-feedback.error,
+.app-portal.command-studio .project-workbench-conflict,
+.app-portal.command-studio .project-workbench-limit-message {
+  border-color: color-mix(in srgb, var(--danger-accent) 42%, var(--line));
+  background: color-mix(in srgb, var(--danger-accent) 9%, var(--surface-1));
+  color: var(--danger-accent);
+}
+
+.app-portal.command-studio .project-workbench-feedback.success {
+  border-color: color-mix(in srgb, var(--connected-accent) 38%, var(--line));
+  background: color-mix(in srgb, var(--connected-accent) 8%, var(--surface-1));
+  color: var(--connected-accent);
+}
+
+@keyframes commandStudioAmbient {
+  0% {
+    transform: scale(1.04) translate3d(-1.5%, -1%, 0);
+  }
+  45% {
+    transform: scale(1.08) translate3d(1.6%, 0.8%, 0);
+  }
+  100% {
+    transform: scale(1.05) translate3d(-0.4%, 1.8%, 0);
+  }
+}
+
+@keyframes inspectorIn {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes sheetIn {
+  from {
+    opacity: 0;
+    transform: translateX(18px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes preferencesIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes preferencesOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.988);
+  }
+}
+
+@media (max-width: 1180px) {
+  .command-studio .chat.with-inspector {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .command-studio .response-inspector {
+    position: absolute;
+    top: 58px;
+    right: 0;
+    bottom: 0;
+    grid-column: auto;
+    grid-row: auto;
+    z-index: 30;
+    width: min(320px, calc(100% - 24px));
+    border-top: 1px solid var(--line);
+    box-shadow: -20px 0 60px rgba(5, 9, 12, 0.18);
+  }
+}
+
+@media (max-width: 860px) {
+  .command-studio {
+    --sidebar-width: 250px;
+    --messages-padding: 16px;
+  }
+
+  .command-studio .chat-header,
+  .command-studio .composer {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .command-studio .active-task-switcher span,
+  .command-studio .connection-chip span {
+    display: none;
+  }
+
+  .command-studio .message.user {
+    width: min(620px, 92%);
+  }
+
+  .app-portal.command-studio .settings-drawer {
+    grid-template-columns: 1fr;
+  }
+
+  .app-portal.command-studio .settings-section,
+  .app-portal.command-studio .settings-section:nth-of-type(even) {
+    border-right: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .command-studio .ambient-image,
+  .command-studio .inspector-status-dot.running,
+  .command-studio .composer.working .composer-box::before {
+    animation: none !important;
+  }
+}
+
+/* Focus mode: the chat is the product, the rest is available on demand. */
+.command-studio {
+  --sidebar-width: 264px;
+  --sidebar-padding: 10px;
+  --messages-padding: 20px;
+}
+
+.command-studio .sidebar {
+  gap: 9px;
+}
+
+.command-studio .project-list {
+  max-height: 176px;
+  gap: 4px;
+}
+
+.command-studio .server-row {
+  min-height: 18px;
+}
+
+.command-studio .project-row {
+  min-height: 50px;
+  padding: 7px 8px;
+  border-color: transparent;
+}
+
+.command-studio .project-row.active {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--surface-active) 58%, var(--surface-1));
+  box-shadow: none;
+}
+
+.command-studio .project-disconnect {
+  opacity: 0;
+  transition: opacity 160ms ease, background 160ms ease;
+}
+
+.command-studio .project-row:hover .project-disconnect,
+.command-studio .project-row:focus-within .project-disconnect {
+  opacity: 1;
+}
+
+.command-studio .session-head {
+  margin-top: 2px;
+}
+
+.command-studio .new-dialog-button {
+  width: 30px;
+  padding: 0;
+}
+
+.command-studio .new-dialog-button span {
+  display: none;
+}
+
+.command-studio .search-filter-button {
+  opacity: 0;
+  transition: opacity 160ms ease, background 160ms ease;
+}
+
+.command-studio .search-box:hover .search-filter-button,
+.command-studio .search-box:focus-within .search-filter-button,
+.command-studio .search-filter-button.active {
+  opacity: 1;
+}
+
+.command-studio .sidebar-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 0;
+  padding: 9px 2px 0;
+}
+
+.command-studio .sidebar-footer button {
+  position: relative;
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  justify-content: center;
+}
+
+.command-studio .sidebar-footer button > span {
+  display: none;
+}
+
+.command-studio .sidebar-footer small {
+  position: absolute;
+  top: -3px;
+  right: 1px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 7px;
+  font-size: 8px;
+  line-height: 16px;
+}
+
+.command-studio .chat-header {
+  min-height: 56px;
+  padding: 9px 16px;
+}
+
+.command-studio .chat-header h1 {
+  max-width: min(720px, 72vw);
+  font-size: 14px;
+}
+
+.command-studio .header-actions {
+  gap: 5px;
+}
+
+.command-studio .connection-chip {
+  display: grid;
+  width: 24px;
+  padding: 0;
+  place-items: center;
+  border-color: transparent;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.command-studio .connection-chip.connected {
+  border-color: transparent;
+  background: transparent;
+}
+
+.command-studio .connection-chip svg {
+  width: 8px;
+  height: 8px;
+  filter: drop-shadow(0 0 6px currentColor);
+}
+
+.command-studio .ambient-backdrop {
+  opacity: 0.08;
+}
+
+.command-studio .chat:has(.messages.empty) .ambient-backdrop {
+  opacity: 0.46;
+}
+
+.command-studio.task-active .ambient-backdrop {
+  opacity: 0.16;
+}
+
+.command-studio .messages {
+  gap: 18px;
+  padding-top: 20px;
+  padding-bottom: 24px;
+}
+
+.command-studio .turn-group {
+  gap: 7px;
+}
+
+.command-studio .message.assistant .message-body,
+.command-studio .message.system .message-body {
+  padding: 2px 2px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.command-studio .message.assistant .message-head,
+.command-studio .message.system .message-head {
+  margin-bottom: 5px;
+}
+
+.command-studio .message.assistant .message-author,
+.command-studio .message.system .message-author {
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.command-studio .message.user {
+  width: min(620px, 78%);
+}
+
+.command-studio .message.user .message-body {
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--user-message-bg, #273036);
+  color: #ffffff;
+  box-shadow: 0 8px 24px rgba(5, 8, 10, 0.1);
+}
+
+.command-studio.theme-dark .message.user .message-body {
+  background: var(--user-message-bg, #20282d);
+}
+
+.command-studio .message-text {
+  font-size: 13px;
+  line-height: 1.68;
+}
+
+.command-studio .message.steps-message {
+  margin: 0;
+}
+
+.command-studio .steps-summary {
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  border-left: 2px solid color-mix(in srgb, var(--ai-accent) 68%, transparent);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.command-studio .steps-toggle {
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.command-studio .steps-message + .message.assistant .message-body,
+.command-studio .files-message .message-body {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.command-studio .files-message {
+  margin: 0;
+}
+
+.command-studio .files-message .message-body {
+  padding: 2px 0 0;
+}
+
+.command-studio .files-message .message-head {
+  display: inline-flex;
+  margin: 0 8px 0 0;
+}
+
+.command-studio .files-message .file-summary-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.command-studio .task-summary-card {
+  gap: 5px;
+  width: min(900px, calc(100% - 40px));
+  margin-bottom: 4px;
+  padding: 8px 2px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-left: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.command-studio .task-summary-head {
+  min-height: 24px;
+}
+
+.command-studio .task-summary-head strong {
+  font-size: 11px;
+}
+
+.command-studio .task-summary-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.command-studio .task-summary-inspector {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.command-studio .task-summary-inspector:hover {
+  border-color: var(--line);
+  background: var(--surface-hover);
+  color: var(--text-1);
+}
+
+.command-studio .task-summary-grid {
+  gap: 6px;
+}
+
+.command-studio .task-summary-grid span {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  font-size: 10px;
+}
+
+.command-studio .task-summary-grid span:not(:last-child)::after {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--line-strong);
+  content: "·";
+}
+
+.command-studio .task-summary-files {
+  gap: 5px;
+}
+
+.command-studio .task-summary-files button {
+  min-height: 24px;
+  padding: 0 7px;
+  border-radius: 6px;
+}
+
+.command-studio .task-status {
+  min-height: 30px;
+  margin-bottom: 4px;
+  padding: 4px 2px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}
+
+.command-studio .task-status.working {
+  border-color: color-mix(in srgb, var(--ai-accent) 35%, var(--line));
+  background: transparent;
+}
+
+.command-studio .task-status-metrics span {
+  min-height: 20px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.command-studio .composer {
+  padding: 10px 18px 14px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--composer-bg) 82%, transparent);
+}
+
+.command-studio .composer-box {
+  padding: 5px;
+  border-radius: 9px;
+  box-shadow: none;
+}
+
+.command-studio .composer.working .composer-box,
+.command-studio .composer:focus-within .composer-box {
+  box-shadow: 0 0 0 2px var(--ai-accent-soft);
+}
+
+.command-studio .composer textarea {
+  min-height: 42px;
+  padding: 12px 8px 6px;
+  line-height: 1.35;
+}
+
+.command-studio .thread-row.active {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--surface-active) 58%, transparent);
+  box-shadow: none;
+}
+
+.command-studio .thread-row.active .thread-actions {
+  opacity: 0;
+}
+
+.command-studio .thread-row.active:hover .thread-actions {
+  opacity: 0;
+}
+
+.app-portal.command-studio .command-backdrop.closing {
+  pointer-events: none;
+  animation: fadeOut 180ms ease both;
+}
+
+.app-portal.command-studio .command-backdrop.closing .command-modal {
+  animation: commandOut 180ms ease both;
+}
+
+.app-portal.command-studio .primary-button:disabled,
+.app-portal.command-studio .secondary-button:disabled,
+.app-portal.command-studio .danger-button:disabled,
+.app-portal.command-studio .app-release-button.disabled {
+  border-color: var(--line) !important;
+  background: var(--surface-1) !important;
+  color: var(--text-3) !important;
+  opacity: 1;
+}
+
+.app-portal.command-studio .primary-button:disabled svg,
+.app-portal.command-studio .secondary-button:disabled svg,
+.app-portal.command-studio .danger-button:disabled svg,
+.app-portal.command-studio .app-release-button.disabled svg {
+  color: currentColor;
+}
+
+.app-portal.command-studio .theme-color-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.app-portal.command-studio .theme-color-field {
+  display: flex;
+  min-width: 0;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.app-portal.command-studio .theme-color-field input[type="color"] {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.app-portal.command-studio .theme-reset-button {
+  justify-self: start;
+}
+
+@keyframes commandOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+}
+
+.command-studio .composer-icon-button {
+  width: 32px;
+  height: 32px;
+}
+
+.command-studio .composer-settings-control {
+  max-width: 210px;
+  height: 32px;
+}
+
+.command-studio .send-button {
+  width: 34px;
+  height: 34px;
+  flex-basis: 34px;
+  border-radius: 8px;
+}
+
+@media (max-width: 860px) {
+  .command-studio .sidebar-footer {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .command-studio .sidebar-footer button > span {
+    display: inline;
+  }
+
+  .app-portal.command-studio .theme-color-grid {
+    grid-template-columns: 1fr;
+  }
+}
