@@ -8,8 +8,10 @@ import { promisify } from "node:util";
 
 const require = createRequire(import.meta.url);
 const {
+  checkCodexCli,
   inspectProjectHealth,
   listProjectFiles,
+  preflightCodexCli,
   readProjectDiff,
   readProjectFile,
   searchProjectFiles
@@ -143,6 +145,12 @@ async function main() {
     const fakeSsh = path.join(fakeBin, "ssh");
     await writeFile(fakeSsh, "#!/usr/bin/env bash\nremote_command=\"${!#}\"\nexec bash -lc \"$remote_command\"\n");
     await chmod(fakeSsh, 0o755);
+    const healthyCodex = path.join(fakeBin, "codex-healthy");
+    await writeFile(healthyCodex, "#!/usr/bin/env bash\necho 'codex-cli 0.144.1'\n");
+    await chmod(healthyCodex, 0o755);
+    const brokenCodex = path.join(fakeBin, "codex-broken");
+    await writeFile(brokenCodex, "#!/usr/bin/env bash\necho 'Error: Missing optional dependency @openai/codex-linux-x64' >&2\nexit 1\n");
+    await chmod(brokenCodex, 0o755);
     process.env.PATH = `${fakeBin}${path.delimiter}${originalPath ?? ""}`;
 
     const canonicalRoot = await realpath(root);
@@ -160,6 +168,30 @@ async function main() {
     };
     await verifyProjectCommands({ ...baseProfile, mode: "local" }, canonicalRoot, "local");
     await verifyProjectCommands({ ...baseProfile, mode: "ssh", sshTarget: "fixture-host" }, canonicalRoot, "ssh");
+
+    const preferences = { defaultUpdateCommand: "repair-codex" };
+    const healthyStatus = await preflightCodexCli(
+      { ...baseProfile, mode: "local", codexBin: healthyCodex },
+      {},
+      preferences
+    );
+    assert(!healthyStatus.missing && !healthyStatus.broken, "healthy Codex was not accepted");
+    assert(healthyStatus.installed === "0.144.1", "healthy Codex version was not parsed");
+
+    const brokenStatus = await checkCodexCli(
+      { ...baseProfile, mode: "local", codexBin: brokenCodex },
+      {},
+      preferences
+    );
+    assert(!brokenStatus.missing && brokenStatus.broken, "broken Codex was not detected");
+    assert(brokenStatus.message?.includes("повреждена"), "broken Codex misses repair guidance");
+
+    const missingStatus = await preflightCodexCli(
+      { ...baseProfile, mode: "local", codexBin: path.join(fakeBin, "codex-missing") },
+      {},
+      preferences
+    );
+    assert(missingStatus.missing && !missingStatus.broken, "missing Codex was not detected");
 
     console.log("shell command tests: ok");
   } finally {

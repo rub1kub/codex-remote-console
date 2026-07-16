@@ -16,7 +16,7 @@ type SecretStore = {
   profiles: Record<string, SecretRecord>;
 };
 
-const electronRequire = createRequire(__filename);
+const electronRequire = createRequire(path.join(process.cwd(), "package.json"));
 const dataDir =
   process.env.CODEX_REMOTE_CONSOLE_HOME ??
   path.join(os.homedir(), ".codex-remote-console");

@@ -107,14 +107,14 @@ Codex Remote handles this as a first-class state:
 
 1. Open the project or Settings.
 2. Click `Check` in `Settings -> Codex`.
-3. If `codex` is missing, the status becomes `not installed`.
-4. Click `Install`.
+3. If `codex` is missing, the status becomes `not installed`. If its platform package is missing, the status becomes `damaged`.
+4. Click `Install` or `Repair`.
 5. Reconnect to the project after installation finishes.
 
-The default install/update command follows the current Codex CLI setup path for macOS/Linux and keeps the old npm package as a fallback:
+The default command first uses the official macOS/Linux installer. If npm skipped the platform-specific optional dependency, Codex Remote detects the server OS/architecture and explicitly installs the matching package before validating `codex --version` again:
 
 ```bash
-(set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh) || npm install -g @openai/codex@latest
+curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh
 ```
 
 You can override this command globally in `Settings -> Codex` or per project in the advanced project settings.
@@ -193,6 +193,7 @@ Still intentionally not mirrored as separate polished screens:
 npm run typecheck
 npm run test:task-protocol
 npm run test:message-history
+npm run test:ui
 npm run test:project-tools
 npm run test:shell
 npm run smoke:ssh
@@ -203,6 +204,7 @@ npm run electron:dev
 
 `npm run test:shell` runs the file/tree/search/diff/health shell paths against a temporary local project.
 `npm run test:message-history` covers app-server ghost turns and prevents repeated user messages in restored history.
+`npm run test:ui` starts an isolated production server and checks overlays, drawer animations, the settings backdrop, dark theme, the compact sidebar, and composer geometry in Chromium.
 `npm run test:project-tools` validates Git stage/unstage/commit/push paths and guarded `AGENTS.md` writes in a temporary repository.
 `npm run smoke:ssh` starts the production server on a temporary local port and checks the saved SSH profile through the real HTTP API. Set `CODEX_REMOTE_SMOKE_PROFILE_ID`, `CODEX_REMOTE_SMOKE_FILE`, or `CODEX_REMOTE_SMOKE_PASSWORD` when the default profile is not enough.
 `npm run qa:release` checks version consistency, icons, npm scripts, and release artifacts for the current app version.

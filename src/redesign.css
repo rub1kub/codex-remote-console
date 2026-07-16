@@ -1557,8 +1557,8 @@
 
 .command-studio .sidebar-footer {
   display: flex;
-  justify-content: space-between;
-  gap: 0;
+  justify-content: flex-end;
+  gap: 5px;
   padding: 9px 2px 0;
 }
 
@@ -1603,6 +1603,43 @@
   min-width: 34px;
   min-height: 34px;
   height: 34px;
+}
+
+.task-center-layer {
+  animation: commandStudioOverlayIn 180ms ease both;
+}
+
+.task-center-layer .task-center-drawer {
+  animation: commandStudioDrawerIn 200ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+}
+
+.task-center-layer.closing {
+  pointer-events: none;
+  animation: commandStudioOverlayOut 200ms ease both;
+}
+
+.task-center-layer.closing .task-center-drawer {
+  animation: commandStudioDrawerOut 200ms ease both;
+}
+
+@keyframes commandStudioOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes commandStudioOverlayOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes commandStudioDrawerIn {
+  from { opacity: 0; transform: translate3d(24px, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes commandStudioDrawerOut {
+  from { opacity: 1; transform: translate3d(0, 0, 0); }
+  to { opacity: 0; transform: translate3d(18px, 0, 0); }
 }
 
 .command-studio .chat-header {

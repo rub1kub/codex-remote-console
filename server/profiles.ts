@@ -19,8 +19,11 @@ type Store = {
 const legacyDefaultUpdateCommand =
   "CODEX_NON_INTERACTIVE=1 codex update || npm install -g @openai/codex@latest";
 
-const defaultUpdateCommand =
+const previousDefaultUpdateCommand =
   "(set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh) || npm install -g @openai/codex@latest";
+
+const defaultUpdateCommand =
+  "(set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh) || true; if ! codex --version >/dev/null 2>&1; then CODEX_VERSION=\"$(npm view @openai/codex version)\"; CODEX_OS=\"$(uname -s | tr '[:upper:]' '[:lower:]')\"; CODEX_ARCH=\"$(uname -m)\"; case \"$CODEX_ARCH\" in x86_64|amd64) CODEX_ARCH=x64 ;; aarch64|arm64) CODEX_ARCH=arm64 ;; *) echo \"Unsupported Codex architecture: $CODEX_ARCH\" >&2; exit 1 ;; esac; CODEX_PLATFORM=\"${CODEX_OS}-${CODEX_ARCH}\"; npm install -g \"@openai/codex@${CODEX_VERSION}\" \"@openai/codex-${CODEX_PLATFORM}@npm:@openai/codex@${CODEX_VERSION}-${CODEX_PLATFORM}\" --include=optional; fi; codex --version";
 
 const defaultPreferences: AppPreferences = {
   theme: "system",
@@ -205,7 +208,9 @@ function normalizePreferences(input?: Partial<AppPreferences>): AppPreferences {
         ? historyLimit
         : defaultPreferences.historyLimit,
     defaultUpdateCommand:
-      !savedUpdateCommand || savedUpdateCommand === legacyDefaultUpdateCommand
+      !savedUpdateCommand ||
+      savedUpdateCommand === legacyDefaultUpdateCommand ||
+      savedUpdateCommand === previousDefaultUpdateCommand
         ? defaultPreferences.defaultUpdateCommand
         : savedUpdateCommand
   };

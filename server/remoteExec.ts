@@ -33,6 +33,7 @@ export type CodexCliStatus = {
   latest: string;
   path: string;
   missing: boolean;
+  broken: boolean;
   updateAvailable: boolean;
   command: string;
   installCommand: string;
@@ -135,6 +136,71 @@ function codexMissingMessage(profile: CodexProfile) {
       ? "на этом компьютере"
       : `на сервере ${profile.sshTarget}`;
   return `Codex CLI не найден ${target}. Откройте Настройки -> Codex, нажмите "Установить" и подключитесь к проекту снова.`;
+}
+
+function codexBrokenMessage(profile: CodexProfile, diagnostic = "") {
+  const target =
+    profile.mode === "local"
+      ? "на этом компьютере"
+      : `на сервере ${profile.sshTarget}`;
+  const reason = /Missing optional dependency/i.test(diagnostic)
+    ? "Отсутствует платформенный пакет Codex."
+    : "Команда codex --version завершается с ошибкой.";
+  return `Установка Codex CLI повреждена ${target}. ${reason} Нажмите "Восстановить Codex" и подключитесь снова.`;
+}
+
+function buildCodexStatusCommand(profile: CodexProfile, includeLatest: boolean) {
+  const codexBin = shellQuotePath(profile.codexBin || "codex");
+  return [
+    "set +e",
+    `CODEX_PATH="$(command -v ${codexBin} 2>/dev/null)"`,
+    `VERSION_RAW="$(${codexBin} --version 2>&1)"`,
+    "VERSION_EXIT=$?",
+    'INSTALLED=""',
+    'if [ "$VERSION_EXIT" -eq 0 ]; then INSTALLED="$(printf "%s" "$VERSION_RAW" | awk \'{print $NF}\')"; fi',
+    includeLatest ? 'LATEST="$(npm view @openai/codex version 2>/dev/null)"' : 'LATEST=""',
+    'DIAGNOSTIC="$(printf "%s" "$VERSION_RAW" | tr \'\\r\\n\' \'  \' | cut -c1-1200)"',
+    'printf "installed=%s\\n" "$INSTALLED"',
+    'printf "latest=%s\\n" "$LATEST"',
+    'printf "path=%s\\n" "$CODEX_PATH"',
+    'printf "version_exit=%s\\n" "$VERSION_EXIT"',
+    'printf "diagnostic=%s\\n" "$DIAGNOSTIC"'
+  ].join("; ");
+}
+
+function parseCodexCliStatus(
+  profile: CodexProfile,
+  preferences: AppPreferences,
+  result: CommandResult
+): CodexCliStatus {
+  const parsed = parseKeyValue(result.stdout);
+  const installed = parsed.installed ?? "";
+  const latest = parsed.latest ?? "";
+  const cliPath = parsed.path ?? "";
+  const versionExit = Number(parsed.version_exit ?? "1");
+  const diagnostic = parsed.diagnostic ?? "";
+  const missing = !cliPath;
+  const broken = Boolean(cliPath) && versionExit !== 0;
+  const installCommand = getCodexInstallCommand(profile, preferences);
+
+  return {
+    installed,
+    latest,
+    path: cliPath,
+    missing,
+    broken,
+    updateAvailable:
+      !broken && Boolean(installed && latest) && compareVersions(installed, latest) < 0,
+    command: installCommand,
+    installCommand,
+    message: missing
+      ? codexMissingMessage(profile)
+      : broken
+        ? codexBrokenMessage(profile, diagnostic)
+        : undefined,
+    stdout: result.stdout,
+    stderr: result.stderr
+  };
 }
 
 function validateTarget(target: string) {
@@ -489,6 +555,7 @@ function projectHealthCommand(profile: CodexProfile) {
     'if [ -d "$PROJECT_ROOT" ]; then diag project-dir ok "Папка проекта" "$PROJECT_ROOT"; else diag project-dir fail "Папка проекта" "не найдена"; fi',
     'if [ -r . ]; then diag read ok "Чтение" "папка доступна для чтения"; else diag read fail "Чтение" "нет прав на чтение"; fi',
     'if [ -w . ]; then tmp=".codex-remote-write-test-$$"; if (: > "$tmp") 2>/dev/null; then rm -f "$tmp"; diag write ok "Запись" "write-test прошел"; else diag write warn "Запись" "папка помечена writable, но write-test не прошел"; fi; else diag write warn "Запись" "нет прав на запись"; fi',
+    'DISK_AVAILABLE_KB="$(df -Pk "$PROJECT_ROOT" 2>/dev/null | awk \'NR==2 {print $4}\')"; DISK_USED_PERCENT="$(df -Pk "$PROJECT_ROOT" 2>/dev/null | awk \'NR==2 {print $5}\')"; if [ -z "$DISK_AVAILABLE_KB" ]; then diag disk info "Диск" "не удалось определить свободное место"; elif [ "$DISK_AVAILABLE_KB" -lt 1048576 ]; then DISK_AVAILABLE_MB=$((DISK_AVAILABLE_KB / 1024)); diag disk warn "Диск" "свободно ${DISK_AVAILABLE_MB} МБ, занято ${DISK_USED_PERCENT}"; else DISK_AVAILABLE_GB=$((DISK_AVAILABLE_KB / 1048576)); diag disk ok "Диск" "свободно ${DISK_AVAILABLE_GB} ГБ, занято ${DISK_USED_PERCENT}"; fi',
     'ROOT_COUNT="$(find . -maxdepth 1 -mindepth 1 -not -path "./.git" 2>/dev/null | wc -l | tr -d " ")"; if [ "${ROOT_COUNT:-0}" -gt 0 ]; then diag file-tree ok "Файлы" "найдено ${ROOT_COUNT} элементов в корне"; else diag file-tree warn "Файлы" "корень проекта пуст или недоступен"; fi',
     `CODEX_PATH="$(command -v ${codexBin} 2>/dev/null)"`,
     `CODEX_VERSION="$(${codexBin} --version 2>/dev/null | head -1)"`,
@@ -814,42 +881,13 @@ export async function checkCodexCli(
   secrets: ConnectionSecrets,
   preferences: AppPreferences
 ): Promise<CodexCliStatus> {
-  const codexBin = shellQuotePath(profile.codexBin || "codex");
-  const command = [
-    "set +e",
-    `INSTALLED_RAW="$(${codexBin} --version 2>/dev/null)"`,
-    'INSTALLED="$(printf "%s" "$INSTALLED_RAW" | awk \'{print $NF}\')"',
-    "LATEST=\"$(npm view @openai/codex version 2>/dev/null)\"",
-    `CODEX_PATH="$(command -v ${codexBin} 2>/dev/null)"`,
-    'printf "installed=%s\\n" "$INSTALLED"',
-    'printf "latest=%s\\n" "$LATEST"',
-    'printf "path=%s\\n" "$CODEX_PATH"'
-  ].join("; ");
+  const command = buildCodexStatusCommand(profile, true);
 
   const result = await runProfileCommand(profile, secrets, command);
   if (result.exitCode !== 0 && !result.stdout.includes("installed=")) {
     throw new Error(result.stderr.trim() || "Не удалось проверить Codex CLI.");
   }
-  const parsed = parseKeyValue(result.stdout);
-  const installed = parsed.installed ?? "";
-  const latest = parsed.latest ?? "";
-  const cliPath = parsed.path ?? "";
-  const missing = !installed && !cliPath;
-  const installCommand = getCodexInstallCommand(profile, preferences);
-
-  return {
-    installed,
-    latest,
-    path: cliPath,
-    missing,
-    updateAvailable:
-      Boolean(installed && latest) && compareVersions(installed, latest) < 0,
-    command: installCommand,
-    installCommand,
-    message: missing ? codexMissingMessage(profile) : undefined,
-    stdout: result.stdout,
-    stderr: result.stderr
-  };
+  return parseCodexCliStatus(profile, preferences, result);
 }
 
 export async function preflightCodexCli(
@@ -857,40 +895,13 @@ export async function preflightCodexCli(
   secrets: ConnectionSecrets,
   preferences: AppPreferences
 ): Promise<CodexCliStatus> {
-  const codexBin = shellQuotePath(profile.codexBin || "codex");
-  const command = [
-    "set +e",
-    `CODEX_PATH="$(command -v ${codexBin} 2>/dev/null)"`,
-    `INSTALLED_RAW="$(${codexBin} --version 2>/dev/null)"`,
-    'INSTALLED="$(printf "%s" "$INSTALLED_RAW" | awk \'{print $NF}\')"',
-    'printf "installed=%s\\n" "$INSTALLED"',
-    'printf "path=%s\\n" "$CODEX_PATH"',
-    'if [ -z "$CODEX_PATH" ] && [ -z "$INSTALLED" ]; then exit 127; fi'
-  ].join("; ");
+  const command = buildCodexStatusCommand(profile, false);
 
   const result = await runProfileCommand(profile, secrets, command);
   if (result.exitCode !== 0 && !result.stdout.includes("installed=")) {
     throw new Error(result.stderr.trim() || "Не удалось проверить Codex CLI.");
   }
-
-  const parsed = parseKeyValue(result.stdout);
-  const installed = parsed.installed ?? "";
-  const cliPath = parsed.path ?? "";
-  const missing = !installed && !cliPath;
-  const installCommand = getCodexInstallCommand(profile, preferences);
-
-  return {
-    installed,
-    latest: "",
-    path: cliPath,
-    missing,
-    updateAvailable: false,
-    command: installCommand,
-    installCommand,
-    message: missing ? codexMissingMessage(profile) : undefined,
-    stdout: result.stdout,
-    stderr: result.stderr
-  };
+  return parseCodexCliStatus(profile, preferences, result);
 }
 
 export async function updateCodexCli(

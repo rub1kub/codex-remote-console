@@ -9,7 +9,7 @@ import {
   Inbox,
   X
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 
 import type { WorkspaceTaskRecord, WorkspaceTaskStatus } from "./workspaceState";
@@ -155,6 +155,8 @@ export function TaskCenter({
   style
 }: TaskCenterProps) {
   const [internalFilter, setInternalFilter] = useState<TaskCenterFilter>(initialFilter);
+  const [rendered, setRendered] = useState(open);
+  const [closing, setClosing] = useState(false);
   const activeFilter = filter ?? internalFilter;
   const unreadCount = tasks.reduce((count, task) => count + (task.unread ? 1 : 0), 0);
   const visibleTasks = useMemo(
@@ -164,7 +166,31 @@ export function TaskCenter({
     [activeFilter, tasks]
   );
 
-  if (!open) return null;
+  useEffect(() => {
+    if (open) {
+      setRendered(true);
+      setClosing(false);
+      return;
+    }
+    if (!rendered) return;
+    setClosing(true);
+    const timer = window.setTimeout(() => {
+      setRendered(false);
+      setClosing(false);
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [open, rendered]);
+
+  useEffect(() => {
+    if (!rendered || variant !== "drawer" || !onClose) return;
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose, rendered, variant]);
+
+  if (!rendered) return null;
 
   function selectFilter(nextFilter: TaskCenterFilter) {
     if (filter === undefined) setInternalFilter(nextFilter);
@@ -273,7 +299,7 @@ export function TaskCenter({
   if (variant === "panel") return content;
   return (
     <div
-      className="task-center-layer"
+      className={`task-center-layer${closing ? " closing" : ""}`}
       role="presentation"
       style={layerStyle}
       onMouseDown={(event) => {

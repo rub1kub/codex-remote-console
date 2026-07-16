@@ -107,14 +107,14 @@ ssh -T devbox "bash -lc 'cd ~/app && codex app-server --listen stdio://'"
 
 1. Откройте проект или настройки.
 2. Нажмите `Проверить` в `Настройки -> Codex`.
-3. Если `codex` отсутствует, статус станет `не установлен`.
-4. Нажмите `Установить`.
+3. Если `codex` отсутствует, статус станет `не установлен`. Если отсутствует платформенный пакет, статус станет `повреждена`.
+4. Нажмите `Установить` или `Восстановить`.
 5. После установки подключитесь к проекту снова.
 
-Команда установки/обновления по умолчанию использует актуальный способ установки Codex CLI для macOS/Linux и оставляет старый npm-пакет как fallback:
+Команда по умолчанию сначала использует официальный установщик для macOS/Linux. Если npm пропустил опциональный платформенный пакет, Codex Remote определяет ОС и архитектуру сервера, явно устанавливает подходящий пакет и повторно проверяет `codex --version`:
 
 ```bash
-(set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh) || npm install -g @openai/codex@latest
+curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh
 ```
 
 Команду можно переопределить глобально в `Настройки -> Codex` или для конкретного проекта в расширенных настройках проекта.
@@ -192,6 +192,7 @@ flowchart LR
 npm run typecheck
 npm run test:task-protocol
 npm run test:message-history
+npm run test:ui
 npm run test:project-tools
 npm run test:shell
 npm run smoke:ssh
@@ -202,6 +203,7 @@ npm run electron:dev
 
 `npm run test:shell` гоняет файловые shell-пути `tree/file/search/diff/health` на временном локальном проекте.
 `npm run test:message-history` проверяет ghost-turn ответы app-server и не допускает повторов пользовательских сообщений в восстановленной истории.
+`npm run test:ui` поднимает изолированный production-сервер и проверяет оверлеи, анимации панелей, закрытие настроек, темную тему, компактную боковую панель и геометрию поля ввода в Chromium.
 `npm run test:project-tools` проверяет Git stage/unstage/commit/push и защищенную запись `AGENTS.md` во временном репозитории.
 `npm run smoke:ssh` поднимает production-сервер на временном локальном порту и проверяет сохраненный SSH-профиль через настоящий HTTP API. Если нужен не дефолтный профиль, задайте `CODEX_REMOTE_SMOKE_PROFILE_ID`, `CODEX_REMOTE_SMOKE_FILE` или `CODEX_REMOTE_SMOKE_PASSWORD`.
 `npm run qa:release` проверяет совпадение версий, иконки, npm scripts и release-артефакты текущей версии.

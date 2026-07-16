@@ -42,7 +42,7 @@ for (const file of ["build/icon.png", "build/icon.icns", "build/icon.ico"]) {
   assert(exists(file), `${file} is missing`);
 }
 
-for (const script of ["build", "test:task-protocol", "test:message-history", "test:project-tools", "test:shell", "smoke:ssh", "qa:release"]) {
+for (const script of ["build", "test:task-protocol", "test:message-history", "test:ui", "test:project-tools", "test:shell", "smoke:ssh", "qa:release"]) {
   assert(pkg.scripts?.[script], `npm script ${script} is missing`);
 }
 

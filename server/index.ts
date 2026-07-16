@@ -567,7 +567,7 @@ export async function startServer(
             profileId: profile.id,
             result: preflight
           });
-          if (preflight.missing) {
+          if (preflight.missing || preflight.broken) {
             throw new Error(preflight.message || "Codex CLI не найден.");
           }
           bridge = new CodexBridge(profile, secrets);

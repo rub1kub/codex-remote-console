@@ -125,11 +125,22 @@ function codexMissingMessage(profile: CodexProfile) {
   return `Codex CLI не найден ${target}. Откройте Настройки -> Codex, нажмите "Установить" и подключитесь к проекту снова.`;
 }
 
+function codexBrokenMessage(profile: CodexProfile) {
+  const target =
+    profile.mode === "local"
+      ? "на этом компьютере"
+      : `на сервере ${profile.sshTarget}`;
+  return `Установка Codex CLI повреждена ${target}. Отсутствует платформенный пакет Codex. Нажмите "Восстановить Codex" и подключитесь снова.`;
+}
+
 function isMissingCodexError(value: string) {
   return /Codex CLI не найден|command not found|ENOENT|No such file or directory/i.test(value);
 }
 
 function bridgeCloseError(fallback: string, stderr: string, profile: CodexProfile) {
+  if (/Missing optional dependency @openai\/codex-/i.test(stderr)) {
+    return new Error(codexBrokenMessage(profile));
+  }
   if (isMissingCodexError(stderr)) {
     return new Error(codexMissingMessage(profile));
   }
@@ -239,7 +250,7 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       clientInfo: {
         name: "codex_remote_console",
         title: "Codex Remote Console",
-      version: "1.4.1"
+      version: "1.4.2"
       },
       capabilities: {
         experimentalApi: true

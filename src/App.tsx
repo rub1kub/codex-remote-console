@@ -3,7 +3,6 @@ import {
   Archive,
   ArrowLeft,
   ArrowUp,
-  Bell,
   Brain,
   ChevronDown,
   ChevronRight,
@@ -236,7 +235,7 @@ const recentProjectPathsStorageKey = "codex-remote-recent-project-paths";
 const sidebarCollapsedStorageKey = "codex-remote-sidebar-collapsed";
 
 const defaultUpdateCommand =
-  "(set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh) || npm install -g @openai/codex@latest";
+  "(set -o pipefail; curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh) || true; if ! codex --version >/dev/null 2>&1; then CODEX_VERSION=\"$(npm view @openai/codex version)\"; CODEX_OS=\"$(uname -s | tr '[:upper:]' '[:lower:]')\"; CODEX_ARCH=\"$(uname -m)\"; case \"$CODEX_ARCH\" in x86_64|amd64) CODEX_ARCH=x64 ;; aarch64|arm64) CODEX_ARCH=arm64 ;; *) echo \"Unsupported Codex architecture: $CODEX_ARCH\" >&2; exit 1 ;; esac; CODEX_PLATFORM=\"${CODEX_OS}-${CODEX_ARCH}\"; npm install -g \"@openai/codex@${CODEX_VERSION}\" \"@openai/codex-${CODEX_PLATFORM}@npm:@openai/codex@${CODEX_VERSION}-${CODEX_PLATFORM}\" --include=optional; fi; codex --version";
 
 const defaultPreferences: AppPreferences = {
   theme: "system",
@@ -1023,10 +1022,17 @@ function friendlyErrorMessage(value: string) {
   if (/Codex CLI не найден/i.test(value)) {
     return value;
   }
+  if (/Missing optional dependency @openai\/codex-|Установка Codex CLI повреждена/i.test(value)) {
+    return "Установка Codex CLI на сервере повреждена: отсутствует платформенный пакет. Нажмите «Восстановить Codex» и подключитесь снова.";
+  }
   if (/Connect to a profile first/i.test(value)) {
     return "Сначала подключитесь к проекту.";
   }
-  return value;
+  if (/codex app-server exited|app-server.*(?:exit|closed)|file:\/\/\/.*codex|node:internal|at async /i.test(value)) {
+    return "Codex app-server завершился с ошибкой. Откройте диагностику, проверьте Codex CLI и повторите подключение.";
+  }
+  const firstLine = value.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || value;
+  return firstLine.length > 240 ? `${firstLine.slice(0, 237)}...` : firstLine;
 }
 
 export default function App() {
@@ -2537,7 +2543,7 @@ export default function App() {
 
     if (message.type === "error") {
       setError(friendlyErrorMessage(message.message));
-      if (/Codex CLI не найден|Profile not found|auth/i.test(message.message)) {
+      if (/Codex CLI не найден|Codex CLI повреждена|Missing optional dependency|Profile not found|auth/i.test(message.message)) {
         setReconnectPaused(true);
       }
       addLog(`Ошибка: ${message.message}`);
@@ -3638,18 +3644,21 @@ export default function App() {
   const sendButtonLabel = isBusy ? "В очередь" : "Отправить";
   const isCliWorking = cliPhase === "checking" || cliPhase === "updating";
   const isCodexMissing = Boolean(selectedCliStatus?.missing);
-  const cliVersionLabel = isCodexMissing
-    ? "не установлен"
-    : selectedCliStatus?.installed || "не проверено";
+  const isCodexBroken = Boolean(selectedCliStatus?.broken);
+  const cliVersionLabel = isCodexBroken
+    ? "повреждена"
+    : isCodexMissing
+      ? "не установлен"
+      : selectedCliStatus?.installed || "не проверено";
   const canInstallOrUpdateCodex =
     Boolean(selectedProfileId) &&
     !isCliWorking &&
-    Boolean(isCodexMissing || selectedCliStatus?.updateAvailable);
-  const codexActionLabel = isCodexMissing ? "Установить" : "Обновить";
+    Boolean(isCodexMissing || isCodexBroken || selectedCliStatus?.updateAvailable);
+  const codexActionLabel = isCodexBroken ? "Восстановить" : isCodexMissing ? "Установить" : "Обновить";
   const showCodexBootstrap =
     Boolean(selectedProfile) &&
     connection !== "connected" &&
-    Boolean(selectedCliStatus?.missing);
+    Boolean(selectedCliStatus?.missing || selectedCliStatus?.broken);
   const threadNotFoundRecovery = isThreadNotFoundError(error);
   const rootClassName = [
     "app-shell",
@@ -3675,7 +3684,7 @@ export default function App() {
     ...(preferences.userMessageColor ? { "--user-message-bg": preferences.userMessageColor } : {})
   } as CSSProperties;
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.4.1";
+  const appVersion = "1.4.2";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -4183,10 +4192,6 @@ export default function App() {
             <Activity size={15} />
             {activeTaskCount > 0 && <small>{activeTaskCount}</small>}
           </button>
-          <button type="button" onClick={() => setJournalOpen(true)} title="Журнал событий">
-            <Bell size={15} />
-            {logs.length > 0 && <small>{Math.min(logs.length, 99)}</small>}
-          </button>
           <button type="button" onClick={openSettings} title="Настройки">
             <SlidersHorizontal size={15} />
           </button>
@@ -4207,9 +4212,6 @@ export default function App() {
             <button className="header-settings" onClick={openCommand} title="Команды" aria-label="Команды">
               <MoreHorizontal size={17} />
             </button>
-            <span className={`connection-chip ${connection}`} title={statusText[connection]} aria-label={statusText[connection]}>
-              <Circle size={7} fill="currentColor" />
-            </span>
           </div>
         </header>
 
@@ -4217,6 +4219,11 @@ export default function App() {
           <div className="error-banner">
             <span>{error}</span>
             <div className="error-banner-actions">
+              {isCodexBroken && (
+                <button type="button" onClick={updateCodexCli} disabled={isCliWorking}>
+                  {cliPhase === "updating" ? "Восстанавливаю…" : "Восстановить Codex"}
+                </button>
+              )}
               {threadNotFoundRecovery && (
                 <>
                   <button type="button" onClick={() => refreshThreads()}>
@@ -4257,12 +4264,12 @@ export default function App() {
           ) : showCodexBootstrap ? (
             <div className="bootstrap-card">
               <Terminal size={28} />
-              <h2>Codex не установлен</h2>
+              <h2>{isCodexBroken ? "Codex нужно восстановить" : "Codex не установлен"}</h2>
               <p>{selectedCliStatus?.message || "Установите Codex CLI на выбранном проекте и подключитесь снова."}</p>
               <div className="bootstrap-actions">
                 <button type="button" className="primary-button" onClick={updateCodexCli} disabled={isCliWorking}>
                   {cliPhase === "updating" ? <Loader2 size={15} className="spin" /> : <Download size={15} />}
-                  Установить Codex
+                  {isCodexBroken ? "Восстановить Codex" : "Установить Codex"}
                 </button>
                 <button type="button" className="secondary-button" onClick={checkCodexCli} disabled={isCliWorking}>
                   {cliPhase === "checking" ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}
@@ -4441,19 +4448,18 @@ export default function App() {
               </div>
             </div>
             <div className="task-summary-grid">
-              <span>
-                статус <strong>
-                  {lastTaskSummary.status === "completed"
-                    ? "завершено"
-                    : lastTaskSummary.status === "interrupted"
-                      ? "остановлено"
-                      : "ошибка"}
-                </strong>
-              </span>
               <span>время <strong>{formatDuration(lastTaskSummary.elapsedMs)}</strong></span>
-              <span>{formatTokens(lastTaskSummary.tokens)}</span>
-              <span>команды <strong>{lastTaskSummary.commands.length}</strong></span>
-              <span>проверки <strong>{lastTaskSummary.tests.length || "--"}</strong></span>
+              {lastTaskSummary.tokens && (
+                lastTaskSummary.tokens.total !== undefined ||
+                lastTaskSummary.tokens.input !== undefined ||
+                lastTaskSummary.tokens.output !== undefined
+              ) && <span>{formatTokens(lastTaskSummary.tokens)}</span>}
+              {lastTaskSummary.commands.length > 0 && (
+                <span>команды <strong>{lastTaskSummary.commands.length}</strong></span>
+              )}
+              {lastTaskSummary.tests.length > 0 && (
+                <span>проверки <strong>{lastTaskSummary.tests.length}</strong></span>
+              )}
             </div>
             {lastTaskSummary.errorMessage && (
               <div className="task-summary-error">{lastTaskSummary.errorMessage}</div>
@@ -5987,9 +5993,9 @@ export default function App() {
         />
       )}
 
-      {isTaskCenterOpen && renderLayer(
+      {renderLayer(
         <TaskCenter
-          open
+          open={isTaskCenterOpen}
           tasks={workspaceState.tasks}
           onClose={() => setTaskCenterOpen(false)}
           onSelectTask={selectWorkspaceTask}

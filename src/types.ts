@@ -171,6 +171,7 @@ export type CodexCliStatus = {
   latest: string;
   path: string;
   missing: boolean;
+  broken: boolean;
   updateAvailable: boolean;
   command: string;
   installCommand: string;

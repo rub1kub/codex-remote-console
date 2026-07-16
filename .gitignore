@@ -15,3 +15,4 @@ npm-debug.log*
 .codex-remote-console/
 .playwright-mcp/
 codex-remote-*.png
+output/
