@@ -3,6 +3,7 @@ export type ConnectionMode = "ssh" | "local";
 export type ApprovalPolicy = "never" | "on-request" | "on-failure" | "untrusted";
 
 export type SandboxMode = "danger-full-access" | "workspace-write" | "read-only";
+export type ReasoningLevel = "low" | "medium" | "high" | "very-high" | "max" | "ultra";
 
 export type CodexProfile = {
   id: string;
@@ -188,7 +189,7 @@ export type AppPreferences = {
   connectionColor: string;
   userMessageColor: string;
   interfaceStyle: "native" | "session-first" | "calm-terminal";
-  reasoningLevel: "low" | "medium" | "high" | "very-high";
+  reasoningLevel: ReasoningLevel;
   responseSpeed: "standard" | "fast";
   animations: boolean;
   compactMode: boolean;

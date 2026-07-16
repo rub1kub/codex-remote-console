@@ -523,6 +523,18 @@ export async function startServer(
       bridge = undefined;
     };
 
+    const publishModels = async (currentBridge: CodexBridge) => {
+      try {
+        send(ws, { type: "models", result: await currentBridge.listModels() });
+      } catch (error) {
+        send(ws, {
+          type: "models",
+          result: { data: [], nextCursor: null },
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    };
+
     ws.on("close", closeBridge);
 
     ws.on("message", async (raw) => {
@@ -574,6 +586,7 @@ export async function startServer(
           wireBridge(bridge);
           await bridge.start();
           send(ws, { type: "connection", status: "connected", profile });
+          await publishModels(bridge);
           send(ws, {
             type: "threads",
             result: await bridge.listThreads({
@@ -639,7 +652,9 @@ export async function startServer(
           throw new Error("Connect to a profile first.");
         }
 
-        if (message.type === "listThreads") {
+        if (message.type === "listModels") {
+          await publishModels(bridge);
+        } else if (message.type === "listThreads") {
           send(ws, {
             type: "threads",
             result: await bridge.listThreads({

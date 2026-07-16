@@ -169,7 +169,8 @@ Light, dark, and system themes are supported.
 Implemented in the GUI:
 
 - `resume`, `fork`, `archive`, `delete`: available through chat history and the chat context menu.
-- `model`, reasoning, speed, approvals, sandbox: available in the composer/project settings.
+- models are loaded dynamically from Codex `model/list`, so newly available models appear without an app update; the offline fallback currently includes GPT-5.6 Sol, Terra, and Luna;
+- reasoning and speed options follow the capabilities advertised by the selected model; approvals and sandbox remain available in the composer/project settings.
 - `doctor` and `features list`: available through `/doctor`, `/features`, and `Cmd/Ctrl+K`.
 - `review`: available through native `review/start` from `/review` and the command palette.
 - project commands: available through `/commands` and the project command runner.

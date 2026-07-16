@@ -52,6 +52,13 @@ try {
   assert(await page.locator(".chat-header .connection-chip").count() === 0, "header duplicates the project connection status");
   assert(await page.locator(".sidebar-footer button").count() === 2, "sidebar footer is not reduced to tasks and settings");
 
+  await page.getByTitle("Модель и режим ответа").click();
+  await page.locator(".popover-disclosure").filter({ hasText: "Модель" }).click();
+  assert(await page.getByRole("button", { name: "GPT-5.6-Sol" }).isVisible(), "GPT-5.6-Sol is missing from the model picker");
+  assert(await page.getByRole("button", { name: "GPT-5.6-Terra" }).isVisible(), "GPT-5.6-Terra is missing from the model picker");
+  assert(await page.getByRole("button", { name: "GPT-5.6-Luna" }).isVisible(), "GPT-5.6-Luna is missing from the model picker");
+  await page.keyboard.press("Escape");
+
   await page.getByTitle("Центр задач").click();
   const taskLayer = page.locator(".task-center-layer");
   const taskDrawer = page.locator(".task-center-drawer");

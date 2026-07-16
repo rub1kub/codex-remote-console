@@ -49,7 +49,7 @@ const defaultPreferences: AppPreferences = {
 };
 
 const interfaceStyles = ["native", "session-first", "calm-terminal"] as const;
-const reasoningLevels = ["low", "medium", "high", "very-high"] as const;
+const reasoningLevels = ["low", "medium", "high", "very-high", "max", "ultra"] as const;
 const responseSpeeds = ["standard", "fast"] as const;
 const appUpdateChannels = ["stable", "preview"] as const;
 

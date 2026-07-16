@@ -14,6 +14,8 @@ assert.equal(codexReasoningEffortValue("low"), "low");
 assert.equal(codexReasoningEffortValue("medium"), "medium");
 assert.equal(codexReasoningEffortValue("high"), "high");
 assert.equal(codexReasoningEffortValue("very-high"), "xhigh");
+assert.equal(codexReasoningEffortValue("max"), "max");
+assert.equal(codexReasoningEffortValue("ultra"), "ultra");
 
 assert.deepEqual(
   parseTurnEvent({

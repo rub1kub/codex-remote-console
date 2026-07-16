@@ -22,6 +22,11 @@ type PendingRequest = {
   timer: NodeJS.Timeout;
 };
 
+type ModelListPage = {
+  data?: unknown[];
+  nextCursor?: string | null;
+};
+
 type BridgeEvents = {
   notification: [JsonRpcMessage];
   stderr: [string];
@@ -250,7 +255,7 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       clientInfo: {
         name: "codex_remote_console",
         title: "Codex Remote Console",
-      version: "1.4.2"
+      version: "1.4.3"
       },
       capabilities: {
         experimentalApi: true
@@ -284,6 +289,23 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       sourceKinds: ["cli", "appServer", "vscode", "exec"],
       searchTerm: options.searchTerm || null
     });
+  }
+
+  async listModels() {
+    const data: unknown[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const page = (await this.request("model/list", {
+        cursor,
+        limit: 100,
+        includeHidden: false
+      })) as ModelListPage;
+      if (Array.isArray(page.data)) data.push(...page.data);
+      cursor = typeof page.nextCursor === "string" && page.nextCursor ? page.nextCursor : null;
+    } while (cursor);
+
+    return { data, nextCursor: null };
   }
 
   async readThread(threadId: string) {

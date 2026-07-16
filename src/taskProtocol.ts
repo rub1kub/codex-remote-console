@@ -26,7 +26,7 @@ export type TurnCompletionDecision =
 const terminalStatuses = new Set(["completed", "interrupted", "failed"]);
 
 export function codexReasoningEffortValue(
-  level: "low" | "medium" | "high" | "very-high"
+  level: "low" | "medium" | "high" | "very-high" | "max" | "ultra"
 ) {
   if (level === "very-high") return "xhigh";
   return level;

@@ -1,6 +1,7 @@
 export type ConnectionMode = "ssh" | "local";
 export type ApprovalPolicy = "never" | "on-request" | "on-failure" | "untrusted";
 export type SandboxMode = "danger-full-access" | "workspace-write" | "read-only";
+export type ReasoningLevel = "low" | "medium" | "high" | "very-high" | "max" | "ultra";
 
 export type CodexProfile = {
   id: string;
@@ -26,7 +27,7 @@ export type AppPreferences = {
   connectionColor: string;
   userMessageColor: string;
   interfaceStyle: "native" | "session-first" | "calm-terminal";
-  reasoningLevel: "low" | "medium" | "high" | "very-high";
+  reasoningLevel: ReasoningLevel;
   responseSpeed: "standard" | "fast";
   animations: boolean;
   compactMode: boolean;
@@ -183,6 +184,36 @@ export type CodexCliStatus = {
   updateStderr?: string;
 };
 
+export type CodexReasoningEffortOption = {
+  reasoningEffort: string;
+  description: string;
+};
+
+export type CodexModelServiceTier = {
+  id: string;
+  name: string;
+  description: string;
+};
+
+export type CodexModel = {
+  id: string;
+  model: string;
+  displayName: string;
+  description: string;
+  hidden: boolean;
+  isDefault: boolean;
+  defaultReasoningEffort: string;
+  supportedReasoningEfforts: CodexReasoningEffortOption[];
+  serviceTiers?: CodexModelServiceTier[];
+  additionalSpeedTiers?: string[];
+  defaultServiceTier?: string | null;
+};
+
+export type CodexModelList = {
+  data: CodexModel[];
+  nextCursor?: string | null;
+};
+
 export type ThreadItem = {
   type: string;
   id: string;
@@ -233,5 +264,6 @@ export type ServerMessage =
   | { type: "notification"; message: { id?: number | string; method?: string; params: any } }
   | { type: "log"; line: string }
   | { type: "codexCli"; phase: "checking" | "checked" | "updating" | "updated"; profileId?: string; result: CodexCliStatus | null }
+  | { type: "models"; result: CodexModelList; error?: string }
   | { type: "error"; message: string }
   | { type: "interrupt"; result: unknown };

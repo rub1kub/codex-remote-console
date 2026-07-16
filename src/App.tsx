@@ -51,6 +51,15 @@ import { createPortal } from "react-dom";
 import { TaskCenter } from "./TaskCenter";
 import { ProjectWorkbench } from "./ProjectWorkbench";
 import { dedupeThreadItems } from "./messageHistory";
+import {
+  fallbackCodexModels,
+  modelForSelection,
+  modelPickerOptions,
+  modelSupportsReasoning,
+  preferenceForReasoningEffort,
+  reasoningEffortForPreference,
+  serviceTierForSpeed
+} from "./modelCatalog";
 import ambientDark from "./assets/ambient-dark.webp";
 import ambientLight from "./assets/ambient-light.webp";
 import {
@@ -67,6 +76,7 @@ import type {
   AppUpdateStatus,
   ChatMessage,
   CodexCliStatus,
+  CodexModel,
   CodexProfile,
   CodexThread,
   DirectoryListing,
@@ -85,7 +95,6 @@ import type {
   UserInput
 } from "./types";
 import {
-  codexReasoningEffortValue,
   completionDecisionForActiveTask,
   isTurnEventForActiveTask,
   mergeTurnIdentity,
@@ -272,14 +281,6 @@ const emptyDraft: ProfileDraft = {
   sandboxMode: "danger-full-access"
 };
 
-const modelOptions = [
-  { value: "", label: "по умолчанию", shortLabel: "модель" },
-  { value: "gpt-5.5", label: "GPT-5.5", shortLabel: "5.5" },
-  { value: "gpt-5.4", label: "GPT-5.4", shortLabel: "5.4" },
-  { value: "gpt-5.4-mini", label: "GPT-5.4 mini", shortLabel: "5.4 mini" },
-  { value: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", shortLabel: "Spark" }
-];
-
 const reasoningOptions: Array<{
   value: AppPreferences["reasoningLevel"];
   label: string;
@@ -288,7 +289,9 @@ const reasoningOptions: Array<{
   { value: "low", label: "Низкий", shortLabel: "низкий" },
   { value: "medium", label: "Средний", shortLabel: "средний" },
   { value: "high", label: "Высокий", shortLabel: "высокий" },
-  { value: "very-high", label: "Очень высокий", shortLabel: "очень высокий" }
+  { value: "very-high", label: "Очень высокий", shortLabel: "очень высокий" },
+  { value: "max", label: "Максимальный", shortLabel: "максимальный" },
+  { value: "ultra", label: "Ультра", shortLabel: "ультра" }
 ];
 
 const speedOptions: Array<{
@@ -789,7 +792,7 @@ function diffLineClass(line: string) {
 }
 
 function reasoningEffortValue(level: AppPreferences["reasoningLevel"]) {
-  return codexReasoningEffortValue(level);
+  return reasoningEffortForPreference(level);
 }
 
 function threadToMessages(thread: CodexThread | null): ChatMessage[] {
@@ -1042,6 +1045,7 @@ export default function App() {
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [connection, setConnection] = useState<ConnectionState>("idle");
   const [codexStatus, setCodexStatus] = useState("");
+  const [availableModels, setAvailableModels] = useState<CodexModel[]>(fallbackCodexModels);
   const [threads, setThreads] = useState<CodexThread[]>([]);
   const [activeThread, setActiveThread] = useState<CodexThread | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -1169,6 +1173,34 @@ export default function App() {
     () => profiles.find((profile) => profile.id === selectedProfileId),
     [profiles, selectedProfileId]
   );
+  const selectedModelValue = selectedProfile?.model ?? "";
+  const modelOptions = useMemo(() => {
+    const options = modelPickerOptions(availableModels);
+    if (selectedModelValue && !options.some((option) => option.value === selectedModelValue)) {
+      options.push({
+        value: selectedModelValue,
+        label: selectedModelValue,
+        shortLabel: selectedModelValue.replace(/^gpt-/, "")
+      });
+    }
+    return options;
+  }, [availableModels, selectedModelValue]);
+  const selectedCatalogModel = useMemo(
+    () => modelForSelection(availableModels, selectedModelValue),
+    [availableModels, selectedModelValue]
+  );
+  const availableReasoningOptions = useMemo(() => {
+    if (!selectedCatalogModel) return reasoningOptions;
+    return reasoningOptions.filter((option) =>
+      modelSupportsReasoning(selectedCatalogModel, option.value)
+    );
+  }, [selectedCatalogModel]);
+  const availableSpeedOptions = useMemo(() => {
+    if (!selectedCatalogModel || serviceTierForSpeed(selectedCatalogModel, "fast")) {
+      return speedOptions;
+    }
+    return speedOptions.filter((option) => option.value === "standard");
+  }, [selectedCatalogModel]);
   const approvalRequest = approvalRequests[0] ?? null;
 
   useEffect(() => {
@@ -1273,7 +1305,6 @@ export default function App() {
   const activeWorkspaceChatKey = selectedProfileId
     ? workspaceChatKey(selectedProfileId, activeThread?.id || "new")
     : null;
-  const selectedModelValue = selectedProfile?.model ?? "";
   const selectedModelOption = modelOptions.find((option) => option.value === selectedModelValue);
   const selectedModelLabel = selectedModelValue
     ? selectedModelOption?.shortLabel || selectedModelValue.replace(/^gpt-/, "")
@@ -1636,7 +1667,8 @@ export default function App() {
   }
 
   async function updatePreferences(patch: Partial<AppPreferences>) {
-    const next = { ...preferences, ...patch };
+    const next = { ...preferencesRef.current, ...patch };
+    preferencesRef.current = next;
     setPreferences(next);
     const response = await fetch("/api/preferences", {
       method: "PATCH",
@@ -1645,7 +1677,9 @@ export default function App() {
     });
     const data = (await response.json()) as { preferences?: AppPreferences };
     if (data.preferences) {
-      setPreferences({ ...defaultPreferences, ...data.preferences });
+      const saved = { ...defaultPreferences, ...data.preferences };
+      preferencesRef.current = saved;
+      setPreferences(saved);
     }
   }
 
@@ -2344,7 +2378,10 @@ export default function App() {
         text: clean,
         input: inputItems,
         effort: reasoningEffortValue(preferencesRef.current.reasoningLevel),
-        serviceTier: preferencesRef.current.responseSpeed === "fast" ? "fast" : null
+        serviceTier: serviceTierForSpeed(
+          modelForSelection(availableModels, selectedProfileRef.current?.model ?? ""),
+          preferencesRef.current.responseSpeed
+        )
       });
     };
     if (profileId) {
@@ -2474,6 +2511,22 @@ export default function App() {
       }
       if (message.result) {
         setCliStatus(message.result);
+      }
+      return;
+    }
+
+    if (message.type === "models") {
+      if (message.result.data.length > 0) {
+        setAvailableModels(message.result.data);
+        const currentModel = modelForSelection(
+          message.result.data,
+          selectedProfileRef.current?.model ?? ""
+        );
+        void normalizePreferencesForModel(currentModel);
+        addLog(`Получен каталог моделей: ${message.result.data.length}`);
+      }
+      if (message.error) {
+        addLog(`Каталог моделей недоступен: ${friendlyErrorMessage(message.error)}`);
       }
       return;
     }
@@ -2890,6 +2943,7 @@ export default function App() {
     manualDisconnectRef.current = false;
     setReconnectPaused(false);
     setSelectedProfileId(profileId);
+    setAvailableModels(fallbackCodexModels);
     setError("");
     setMessages([]);
     setActiveThread(null);
@@ -2947,6 +3001,9 @@ export default function App() {
 
   function toggleComposerMenu(event: MouseEvent) {
     event.stopPropagation();
+    if (!isComposerMenuOpen && connectionRef.current === "connected") {
+      send({ type: "listModels" });
+    }
     setComposerMenuOpen((current) => {
       const nextOpen = !current;
       if (!nextOpen) {
@@ -2987,9 +3044,28 @@ export default function App() {
       setProfiles((current) =>
         current.map((profile) => (profile.id === data.profile!.id ? data.profile! : profile))
       );
+      await normalizePreferencesForModel(modelForSelection(availableModels, model));
     } catch (modelError) {
       setProfiles(previousProfiles);
       setError(modelError instanceof Error ? modelError.message : "Не удалось переключить модель.");
+    }
+  }
+
+  async function normalizePreferencesForModel(model: CodexModel | undefined) {
+    if (!model) return;
+    const updates: Partial<AppPreferences> = {};
+    if (!modelSupportsReasoning(model, preferencesRef.current.reasoningLevel)) {
+      const fallbackLevel = preferenceForReasoningEffort(model.defaultReasoningEffort);
+      if (fallbackLevel) updates.reasoningLevel = fallbackLevel;
+    }
+    if (
+      preferencesRef.current.responseSpeed === "fast" &&
+      !serviceTierForSpeed(model, "fast")
+    ) {
+      updates.responseSpeed = "standard";
+    }
+    if (Object.keys(updates).length > 0) {
+      await updatePreferences(updates);
     }
   }
 
@@ -3684,7 +3760,7 @@ export default function App() {
     ...(preferences.userMessageColor ? { "--user-message-bg": preferences.userMessageColor } : {})
   } as CSSProperties;
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.4.2";
+  const appVersion = "1.4.3";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -4649,7 +4725,7 @@ export default function App() {
                           <Brain size={14} />
                           <span>Рассуждение</span>
                         </div>
-                        {reasoningOptions.map((option) => (
+                        {availableReasoningOptions.map((option) => (
                           <button
                             key={option.value}
                             type="button"
@@ -4728,7 +4804,7 @@ export default function App() {
                         </button>
                         {openComposerSubmenu === "speed" && (
                           <div className="popover-nested">
-                            {speedOptions.map((option) => (
+                            {availableSpeedOptions.map((option) => (
                               <button
                                 key={option.value}
                                 type="button"

@@ -1,6 +1,6 @@
 {
   "name": "codex-remote-console",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "description": "Desktop app for remote Codex CLI sessions over SSH with project history, folder picker, chat UI, and packaged builds for macOS, Windows, and Linux.",
   "desktopName": "Codex Remote",
   "author": "rub1kub",
@@ -12,6 +12,7 @@
     "start": "NODE_ENV=production node build/server/index.js",
     "typecheck": "tsc --noEmit",
     "test:task-protocol": "tsx scripts/test-task-protocol.ts",
+    "test:model-catalog": "tsx scripts/test-model-catalog.ts",
     "test:message-history": "tsx scripts/test-message-history.ts",
     "test:ui": "npm run build && node scripts/test-ui.mjs",
     "test:project-tools": "npm run build:server && node scripts/test-project-tools.mjs",
