@@ -52,6 +52,22 @@ try {
   assert(await page.locator(".chat-header .connection-chip").count() === 0, "header duplicates the project connection status");
   assert(await page.locator(".sidebar-footer button").count() === 2, "sidebar footer is not reduced to tasks and settings");
 
+  await page.getByTitle("Команды").click();
+  const commandModal = page.locator(".command-modal");
+  await commandModal.waitFor({ state: "visible" });
+  assert(
+    await page.evaluate(() => document.activeElement?.classList.contains("command-modal")),
+    "command dialog does not receive neutral initial focus"
+  );
+  assert(
+    !(await page.getByPlaceholder("Что сделать?").evaluate((input) => input === document.activeElement)),
+    "command input is focused immediately"
+  );
+  const commandBox = await commandModal.boundingBox();
+  assert(commandBox, "command modal geometry is unavailable");
+  await page.mouse.click(Math.max(8, commandBox.x - 24), 100);
+  await commandModal.waitFor({ state: "detached", timeout: 1_000 });
+
   await page.getByTitle("Модель и режим ответа").click();
   await page.waitForTimeout(220);
   const composerPopover = page.locator(".composer-popover");
@@ -85,7 +101,29 @@ try {
   await page.getByTitle("Настройки").click();
   const settingsLayer = page.locator(".settings-backdrop");
   await settingsLayer.waitFor({ state: "visible" });
+  const settingsHeaderBox = await page.locator(".settings-drawer > .modal-head").boundingBox();
+  const settingsBody = page.locator(".settings-body");
+  const settingsBodyBox = await settingsBody.boundingBox();
+  assert(settingsHeaderBox && settingsBodyBox, "settings geometry is unavailable");
+  assert(
+    settingsBodyBox.y >= settingsHeaderBox.y + settingsHeaderBox.height - 1,
+    "settings content overlaps the header"
+  );
+  await settingsBody.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
   await page.mouse.click(20, 200);
+  await settingsLayer.waitFor({ state: "detached", timeout: 1_200 });
+  await page.getByTitle("Настройки").click();
+  await settingsLayer.waitFor({ state: "visible" });
+  assert(await settingsBody.evaluate((element) => element.scrollTop) === 0, "settings reopen at a stale scroll position");
+  await page.getByRole("button", { name: "Темная" }).click();
+  assert(await page.locator("html").evaluate((element) => element.classList.contains("theme-snap")), "theme switch is not atomic");
+  assert(
+    await page.locator(".settings-section").first().evaluate((element) => getComputedStyle(element).transitionDuration) === "0s",
+    "theme switch leaves delayed element transitions active"
+  );
+  await page.getByTitle("Закрыть настройки").click();
   await settingsLayer.waitFor({ state: "detached", timeout: 1_200 });
 
   const composerBox = await page.locator(".composer-box").boundingBox();
@@ -93,6 +131,27 @@ try {
   assert(composerBox && textareaBox, "composer geometry is unavailable");
   assert(textareaBox.y >= composerBox.y, "composer text starts above its container");
   assert(textareaBox.y + textareaBox.height <= composerBox.y + composerBox.height, "composer text overflows its container");
+  const sidebarFooterBox = await page.locator(".sidebar-footer").boundingBox();
+  const composerBarBox = await page.locator(".composer").boundingBox();
+  assert(sidebarFooterBox && composerBarBox, "bottom bar geometry is unavailable");
+  assert(
+    Math.abs(sidebarFooterBox.y - composerBarBox.y) <= 1,
+    `sidebar footer and composer are vertically misaligned (${sidebarFooterBox.y} !== ${composerBarBox.y})`
+  );
+
+  await page.locator(".project-list").evaluate((list) => {
+    const fixture = document.createElement("div");
+    fixture.className = "project-row active ui-project-fixture";
+    fixture.textContent = "Fixture";
+    list.append(fixture);
+  });
+  const activeProjectStyle = await page.locator(".ui-project-fixture").evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { borderColor: style.borderColor, boxShadow: style.boxShadow };
+  });
+  assert(activeProjectStyle.borderColor === "rgba(0, 0, 0, 0)", "active project still has a colored border");
+  assert(activeProjectStyle.boxShadow === "none", "active project still has a purple inset outline");
+  await page.locator(".ui-project-fixture").evaluate((element) => element.remove());
 
   await page.locator(".messages").evaluate((messages) => {
     const fixture = document.createElement("section");

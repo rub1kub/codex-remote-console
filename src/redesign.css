@@ -27,6 +27,7 @@
   --sidebar-width: 282px;
   --sidebar-padding: 12px;
   --titlebar-height: 40px;
+  --bottom-bar-height: 77px;
   --messages-padding: 24px;
   --radius-xs: 5px;
   --radius-sm: 7px;
@@ -140,12 +141,16 @@
 .command-studio .thread-row,
 .app-portal.command-studio button {
   transition:
-    color 140ms ease,
-    background-color 140ms ease,
     border-color 140ms ease,
     box-shadow 160ms ease,
     opacity 140ms ease,
     transform 140ms var(--ease-out);
+}
+
+html.theme-snap *,
+html.theme-snap *::before,
+html.theme-snap *::after {
+  transition: none !important;
 }
 
 .command-studio button:active:not(:disabled),
@@ -314,9 +319,9 @@
 }
 
 .command-studio .project-row.active {
-  border-color: color-mix(in srgb, var(--ai-accent) 18%, transparent);
+  border-color: transparent;
   background: color-mix(in srgb, var(--surface-active) 74%, var(--surface-1));
-  box-shadow: inset 2px 0 0 var(--ai-accent);
+  box-shadow: none;
 }
 
 .command-studio .project-icon {
@@ -515,8 +520,10 @@
 .command-studio .sidebar-footer {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: calc(var(--bottom-bar-height) - var(--sidebar-padding));
+  align-items: center;
   gap: 6px;
-  padding-top: 10px;
+  padding: 10px 0 11px;
   border-top: 1px solid var(--line);
 }
 
@@ -1126,6 +1133,7 @@
 /* Composer */
 
 .command-studio .composer {
+  min-height: var(--bottom-bar-height);
   padding: 10px max(18px, calc((100% - 920px) / 2)) 12px;
   border-top: 1px solid var(--line);
   background: color-mix(in srgb, var(--chat-bg) 80%, transparent);
@@ -1170,6 +1178,7 @@
 .command-studio .composer textarea {
   min-height: 38px;
   padding: 9px 8px 7px 0;
+  background: transparent;
   color: var(--text-1);
   font-size: 13px;
   line-height: 1.45;
@@ -1512,11 +1521,16 @@
 }
 
 .app-portal.command-studio .settings-drawer {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: stretch;
+  gap: 0;
   width: min(980px, calc(100vw - 36px));
   max-width: none;
   height: min(860px, calc(100vh - 36px));
   max-height: calc(100vh - 36px);
-  overflow: auto;
+  overflow: hidden;
+  padding: 0;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
   background: color-mix(in srgb, var(--surface-3) 95%, transparent);
@@ -1537,14 +1551,23 @@
 }
 
 .app-portal.command-studio .settings-drawer > .modal-head {
-  position: sticky;
+  position: relative;
   z-index: 4;
-  top: 0;
   min-height: 72px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface-3) 82%, transparent);
   backdrop-filter: blur(20px) saturate(145%);
+}
+
+.app-portal.command-studio .settings-body {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 18px 18px;
+  scrollbar-gutter: stable;
 }
 
 .app-portal.command-studio .modal-head h2 {
@@ -1870,7 +1893,7 @@
 }
 
 .command-studio.sidebar-collapsed .project-row.active {
-  box-shadow: inset 2px 0 0 var(--ai-accent);
+  box-shadow: none;
 }
 
 .command-studio.sidebar-collapsed .project-activity {

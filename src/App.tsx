@@ -1163,6 +1163,9 @@ export default function App() {
   const profileImportRef = useRef<HTMLInputElement | null>(null);
   const didCheckAppUpdateRef = useRef(false);
   const workspaceStateRef = useRef(workspaceState);
+  const commandDialogRef = useRef<HTMLDivElement | null>(null);
+  const settingsBodyRef = useRef<HTMLDivElement | null>(null);
+  const themeSnapTimerRef = useRef<number | null>(null);
   const activeWorkspaceTaskIdRef = useRef("");
   const pendingWorkspaceTabRef = useRef<WorkspaceChatTab | null>(null);
   const workspaceSaveTimerRef = useRef<number | null>(null);
@@ -1354,6 +1357,12 @@ export default function App() {
     void loadPreferences();
     void loadThreadMetadata();
     void loadSecretStatus();
+    return () => {
+      if (themeSnapTimerRef.current) {
+        window.clearTimeout(themeSnapTimerRef.current);
+      }
+      document.documentElement.classList.remove("theme-snap");
+    };
   }, []);
 
   useEffect(() => {
@@ -1656,6 +1665,7 @@ export default function App() {
   async function loadPreferences() {
     const response = await fetch("/api/preferences");
     const data = (await response.json()) as { preferences: AppPreferences };
+    snapThemeChanges();
     setPreferences({ ...defaultPreferences, ...data.preferences });
   }
 
@@ -1666,6 +1676,14 @@ export default function App() {
   }
 
   async function updatePreferences(patch: Partial<AppPreferences>) {
+    if (
+      "theme" in patch ||
+      "accentColor" in patch ||
+      "connectionColor" in patch ||
+      "userMessageColor" in patch
+    ) {
+      snapThemeChanges();
+    }
     const next = { ...preferencesRef.current, ...patch };
     preferencesRef.current = next;
     setPreferences(next);
@@ -1682,6 +1700,17 @@ export default function App() {
     }
   }
 
+  function snapThemeChanges() {
+    document.documentElement.classList.add("theme-snap");
+    if (themeSnapTimerRef.current) {
+      window.clearTimeout(themeSnapTimerRef.current);
+    }
+    themeSnapTimerRef.current = window.setTimeout(() => {
+      document.documentElement.classList.remove("theme-snap");
+      themeSnapTimerRef.current = null;
+    }, 100);
+  }
+
   function resetDirectoryBrowser() {
     setDirectoryListing(null);
     setDirectoryError("");
@@ -1696,6 +1725,9 @@ export default function App() {
     settingsVisibleRef.current = true;
     setSettingsClosing(false);
     setSettingsOpen(true);
+    window.requestAnimationFrame(() => {
+      settingsBodyRef.current?.scrollTo({ top: 0 });
+    });
   }
 
   function closeSettings() {
@@ -1731,6 +1763,9 @@ export default function App() {
     setCommandClosing(false);
     setCommandQuery("");
     setCommandOpen(true);
+    window.requestAnimationFrame(() => {
+      commandDialogRef.current?.focus({ preventScroll: true });
+    });
   }
 
   function closeCommand() {
@@ -3759,7 +3794,7 @@ export default function App() {
     ...(preferences.userMessageColor ? { "--user-message-bg": preferences.userMessageColor } : {})
   } as CSSProperties;
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.5.0";
+  const appVersion = "1.5.1";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -5923,7 +5958,13 @@ export default function App() {
             if (event.target === event.currentTarget) closeCommand();
           }}
         >
-          <div className="command-modal" role="dialog" aria-label="Команды">
+          <div
+            ref={commandDialogRef}
+            className="command-modal"
+            role="dialog"
+            aria-label="Команды"
+            tabIndex={-1}
+          >
             <div className="command-search">
               <Command size={16} />
               <input
@@ -5937,7 +5978,6 @@ export default function App() {
                   }
                 }}
                 placeholder="Что сделать?"
-                autoFocus
               />
               <button type="button" onClick={closeCommand} aria-label="Закрыть">
                 <X size={15} />
@@ -6104,7 +6144,8 @@ export default function App() {
               </button>
             </div>
 
-            <section className="settings-section">
+            <div ref={settingsBodyRef} className="settings-body">
+              <section className="settings-section">
               <h3>Codex</h3>
               <div className="cli-status-card">
                 <div>
@@ -6469,7 +6510,8 @@ export default function App() {
                   autoComplete="off"
                 />
               </label>
-            </section>
+              </section>
+            </div>
           </aside>
         </div>
       )}

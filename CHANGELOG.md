@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.1 - 2026-07-17
+
+- Removed automatic focus and the purple focus ring from the command palette input while preserving keyboard navigation through a neutral dialog focus target.
+- Rebuilt Settings scrolling so its header remains stable, content never slides underneath it, and every open starts at the top.
+- Made theme token changes atomic to eliminate staggered light/dark color transitions.
+- Aligned the sidebar footer with the composer and removed the purple outline from the active project.
+- Added UI regressions for command focus, overlay close, Settings geometry and scroll reset, atomic theme changes, bottom-bar alignment, and active-project styling.
+
 ## 1.5.0 - 2026-07-17
 
 - Rebuilt the desktop visual system around a calmer macOS-style shell with unified light and dark themes, compact project navigation, a refined chat header, and a focused composer.
