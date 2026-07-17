@@ -51,20 +51,24 @@ const layerStyle: CSSProperties = {
   inset: 0,
   zIndex: "var(--z-modal, 120)",
   display: "flex",
-  justifyContent: "flex-end",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 18,
   background: "rgba(8, 12, 10, 0.3)"
 };
 
 const centerStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  width: "min(420px, calc(100vw - 16px))",
+  width: "min(760px, calc(100vw - 36px))",
+  height: "min(720px, calc(100vh - 36px))",
   minWidth: 0,
   minHeight: 0,
   color: "inherit",
-  borderLeft: "1px solid var(--sidebar-border, #dfe3df)",
+  border: "1px solid var(--sidebar-border, #dfe3df)",
+  borderRadius: 12,
   background: "var(--chat-bg, #ffffff)",
-  boxShadow: "-20px 0 60px rgba(18, 25, 21, 0.16)"
+  boxShadow: "0 24px 70px rgba(18, 25, 21, 0.2)"
 };
 
 const panelStyle: CSSProperties = {

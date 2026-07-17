@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.0 - 2026-07-17
+
+- Rebuilt the desktop visual system around a calmer macOS-style shell with unified light and dark themes, compact project navigation, a refined chat header, and a focused composer.
+- Added restrained animated ambient light for empty and active states, consistent motion for popovers and dialogs, and accessibility fallbacks for reduced motion and transparency.
+- Reworked conversation turns so progress, final answers, and changed files form one readable vertical flow without collapsing long messages.
+- Unified settings and the task center as centered workspace dialogs, simplified the sidebar footer, and replaced the ambiguous header menu with a command palette shortcut.
+- Extended UI regression coverage for model popover geometry, overlay behavior, composer alignment, dark mode, and long-message layout.
+
 ## 1.4.0 - 2026-07-09
 
 - Reworked the workspace into a compact desktop layout with collapsible navigation, chat tabs, per-chat drafts, grouped history, task states, and a persistent task center.

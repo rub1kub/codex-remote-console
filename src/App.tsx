@@ -21,7 +21,6 @@ import {
   Loader2,
   MessageSquare,
   Monitor,
-  MoreHorizontal,
   Moon,
   Paperclip,
   PanelLeftClose,
@@ -3760,7 +3759,7 @@ export default function App() {
     ...(preferences.userMessageColor ? { "--user-message-bg": preferences.userMessageColor } : {})
   } as CSSProperties;
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.4.3";
+  const appVersion = "1.5.0";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -4110,7 +4109,10 @@ export default function App() {
   return (
     <main className={rootClassName} style={themeTokenStyle}>
       <div className="window-titlebar">
-        <span aria-hidden="true">Codex Remote</span>
+        <span className="window-brand" aria-hidden="true">
+          <span className="window-brand-mark"><Sparkles size={11} /></span>
+          <span>Codex Remote</span>
+        </span>
         <button
           type="button"
           className="titlebar-sidebar-toggle"
@@ -4266,10 +4268,12 @@ export default function App() {
         <nav className="sidebar-footer" aria-label="Инструменты приложения">
           <button type="button" onClick={() => setTaskCenterOpen(true)} title="Центр задач">
             <Activity size={15} />
+            {!isSidebarCollapsed && <span>Задачи</span>}
             {activeTaskCount > 0 && <small>{activeTaskCount}</small>}
           </button>
           <button type="button" onClick={openSettings} title="Настройки">
             <SlidersHorizontal size={15} />
+            {!isSidebarCollapsed && <span>Настройки</span>}
           </button>
         </nav>
       </aside>
@@ -4286,7 +4290,8 @@ export default function App() {
           </div>
           <div className="header-actions">
             <button className="header-settings" onClick={openCommand} title="Команды" aria-label="Команды">
-              <MoreHorizontal size={17} />
+              <Command size={15} />
+              <span>K</span>
             </button>
           </div>
         </header>
