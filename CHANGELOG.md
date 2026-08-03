@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.0 - 2026-08-04
+
+- Added content search across project files (grep from the app, without opening a terminal): the file browser's "Файлы проекта" panel now has a "Содержимое" tab that searches file contents (using `rg` if available, falling back to `grep`) and lists path:line matches with a text preview. Clicking a match opens the file with line numbers and scrolls to and highlights the matching line.
+
 ## 1.7.0 - 2026-08-04
 
 - The MCP panel now also reads the real, structured MCP status (via the native `mcpServerStatus/list` app-server method) alongside the existing `codex mcp list` output: each server row shows its auth status, tool count, resource count, and version when available, and servers that only exist in this richer source (not covered by the shell command) now show up too — some connectors weren't visible in the panel at all before this.

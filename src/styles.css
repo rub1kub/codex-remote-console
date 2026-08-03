@@ -2918,12 +2918,56 @@ textarea:focus {
   cursor: pointer;
 }
 
+.file-search-mode {
+  display: flex;
+  gap: 4px;
+  padding: 6px 6px 0;
+}
+
+.file-search-mode button {
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #7c7c81;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.file-search-mode button.active {
+  background: #ffffff;
+  color: var(--ai-accent, #007aff);
+}
+
 .file-tree-list {
   display: grid;
   align-content: start;
   max-height: min(570px, 62vh);
   overflow: auto;
   padding: 5px;
+}
+
+.file-tree-row.content-match {
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  min-height: 44px;
+}
+
+.file-tree-row.content-match span {
+  display: grid;
+  gap: 2px;
+  overflow: hidden;
+  white-space: normal;
+}
+
+.content-match-text {
+  overflow: hidden;
+  color: #7c7c81 !important;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  text-overflow: ellipsis;
+  white-space: nowrap !important;
 }
 
 .file-tree-row {
@@ -3023,6 +3067,32 @@ textarea:focus {
 
 .file-preview-content {
   max-height: min(560px, 60vh);
+}
+
+.file-preview-content.lined {
+  padding: 8px 0;
+}
+
+.preview-line {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 10px;
+  padding: 0 12px;
+}
+
+.preview-line.active {
+  background: color-mix(in srgb, var(--ai-accent, #007aff) 14%, transparent);
+}
+
+.preview-line-number {
+  color: #a8a8ad;
+  text-align: right;
+  user-select: none;
+}
+
+.preview-line-text {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .file-empty-preview {
@@ -4862,6 +4932,18 @@ textarea:focus {
 .theme-dark .terminal-output,
 .theme-dark .raw-details pre {
   color: #e5e5ea;
+}
+
+.theme-dark .file-search-mode button.active {
+  background: #2c2c2e;
+}
+
+.theme-dark .content-match-text {
+  color: #9a9aa0 !important;
+}
+
+.theme-dark .preview-line-number {
+  color: #6c6c72;
 }
 
 .theme-dark .diff-lines code.add {

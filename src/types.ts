@@ -127,6 +127,12 @@ export type FileSearchResult = {
   label: string;
 };
 
+export type ContentSearchMatch = {
+  path: string;
+  line: number;
+  text: string;
+};
+
 export type McpServerInfo = {
   name: string;
   raw: string;

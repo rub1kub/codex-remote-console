@@ -14,6 +14,7 @@ const {
   preflightCodexCli,
   readProjectDiff,
   readProjectFile,
+  searchProjectFileContents,
   searchProjectFiles
 } = require("../build/server/remoteExec.js");
 const execFileAsync = promisify(execFile);
@@ -55,6 +56,14 @@ async function verifyProjectCommands(profile, canonicalRoot, label) {
   assert(matches.some((match) => match.path === "notes/untracked.txt"), `${label}: file search misses untracked file`);
   const outsideMatches = await searchProjectFiles(profile, {}, "outside");
   assert(outsideMatches.length === 0, `${label}: file search exposes outside symlink`);
+
+  const contentMatches = await searchProjectFileContents(profile, {}, "console.log");
+  assert(
+    contentMatches.some((match) => match.path === "src/index.js" && match.line === 1),
+    `${label}: content search misses src/index.js:1`
+  );
+  const outsideContentMatches = await searchProjectFileContents(profile, {}, "must not be exposed");
+  assert(outsideContentMatches.length === 0, `${label}: content search exposes outside symlink content`);
 
   const diff = await readProjectDiff(profile, {});
   assert(diff.exitCode === 0, `${label}: diff command failed`);

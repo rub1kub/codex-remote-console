@@ -77,6 +77,7 @@ import type {
   AppUpdateStatus,
   ChatMessage,
   CodexCliStatus,
+  ContentSearchMatch,
   CodexModel,
   CodexProfile,
   CodexThread,
@@ -218,9 +219,14 @@ type FilePanelState = {
   open: boolean;
   loading: boolean;
   path: string;
+  mode?: "files" | "content";
   search?: string;
   searchLoading?: boolean;
   searchResults?: FileSearchResult[];
+  contentQuery?: string;
+  contentLoading?: boolean;
+  contentResults?: ContentSearchMatch[];
+  pendingLine?: number;
   listing?: ProjectFileListing;
   file?: ProjectFileContent;
   error?: string;
@@ -1213,6 +1219,7 @@ export default function App() {
   const taskFilesRef = useRef<FileSummary[]>([]);
   const activeTaskIdentityRef = useRef<ActiveTurnIdentity>({});
   const fileMentionTimerRef = useRef<number | null>(null);
+  const filePreviewRef = useRef<HTMLPreElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const profileImportRef = useRef<HTMLInputElement | null>(null);
   const didCheckAppUpdateRef = useRef(false);
@@ -1626,6 +1633,14 @@ export default function App() {
       )
       .slice(0, 20);
   }, [skillMentionQuery, skills]);
+
+  useEffect(() => {
+    if (!filePanel.pendingLine || !filePanel.file || filePanel.loading) return;
+    const container = filePreviewRef.current;
+    if (!container) return;
+    const target = container.querySelector(`[data-line="${filePanel.pendingLine}"]`);
+    target?.scrollIntoView({ block: "center" });
+  }, [filePanel.pendingLine, filePanel.file, filePanel.loading]);
 
   useEffect(() => {
     const closeTransientMenus = () => {
@@ -2133,7 +2148,7 @@ export default function App() {
   }
 
   async function openProjectFile(pathValue: string) {
-    setFilePanel((current) => ({ ...current, loading: true, file: undefined, error: undefined }));
+    setFilePanel((current) => ({ ...current, loading: true, file: undefined, pendingLine: undefined, error: undefined }));
     try {
       const response = await fetch("/api/project/file", {
         method: "POST",
@@ -2156,6 +2171,38 @@ export default function App() {
 
   function openFilePanel() {
     void loadProjectTree(".");
+  }
+
+  async function openProjectFileAtLine(pathValue: string, line: number) {
+    await openProjectFile(pathValue);
+    setFilePanel((current) => ({ ...current, pendingLine: line }));
+  }
+
+  async function searchFilePanelContent(query = filePanel.contentQuery || "") {
+    const cleanQuery = query.trim();
+    if (!cleanQuery) {
+      setFilePanel((current) => ({ ...current, contentQuery: "", contentResults: undefined, contentLoading: false }));
+      return;
+    }
+    setFilePanel((current) => ({ ...current, open: true, contentQuery: cleanQuery, contentLoading: true, error: undefined }));
+    try {
+      const response = await fetch("/api/project/search-content", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(projectApiBody({ query: cleanQuery }))
+      });
+      const data = (await response.json()) as { matches?: ContentSearchMatch[]; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "Не удалось найти совпадения.");
+      }
+      setFilePanel((current) => ({ ...current, contentLoading: false, contentResults: data.matches || [] }));
+    } catch (searchError) {
+      setFilePanel((current) => ({
+        ...current,
+        contentLoading: false,
+        error: searchError instanceof Error ? searchError.message : "Не удалось найти совпадения."
+      }));
+    }
   }
 
   async function searchFilePanel(query = filePanel.search || "") {
@@ -3993,7 +4040,7 @@ export default function App() {
     ...(preferences.userMessageColor ? { "--user-message-bg": preferences.userMessageColor } : {})
   } as CSSProperties;
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.7.0";
+  const appVersion = "1.8.0";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -6030,27 +6077,97 @@ export default function App() {
                     <RefreshCw size={14} className={filePanel.loading ? "spin" : ""} />
                   </button>
                 </div>
-                <form
-                  className="file-search-row"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void searchFilePanel();
-                  }}
-                >
-                  <Search size={14} />
-                  <input
-                    value={filePanel.search || ""}
-                    placeholder="Поиск файлов"
-                    onChange={(event) => setFilePanel((current) => ({ ...current, search: event.target.value }))}
-                  />
-                  {filePanel.search ? (
-                    <button type="button" onClick={() => setFilePanel((current) => ({ ...current, search: "", searchResults: undefined }))}>
-                      <X size={13} />
-                    </button>
-                  ) : null}
-                </form>
+                <div className="file-search-mode">
+                  <button
+                    type="button"
+                    className={filePanel.mode !== "content" ? "active" : ""}
+                    onClick={() => setFilePanel((current) => ({ ...current, mode: "files" }))}
+                  >
+                    Файлы
+                  </button>
+                  <button
+                    type="button"
+                    className={filePanel.mode === "content" ? "active" : ""}
+                    onClick={() => setFilePanel((current) => ({ ...current, mode: "content" }))}
+                  >
+                    Содержимое
+                  </button>
+                </div>
+                {filePanel.mode === "content" ? (
+                  <form
+                    className="file-search-row"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void searchFilePanelContent();
+                    }}
+                  >
+                    <Search size={14} />
+                    <input
+                      value={filePanel.contentQuery || ""}
+                      placeholder="Поиск по содержимому (как grep)"
+                      onChange={(event) => setFilePanel((current) => ({ ...current, contentQuery: event.target.value }))}
+                    />
+                    {filePanel.contentQuery ? (
+                      <button
+                        type="button"
+                        onClick={() => setFilePanel((current) => ({ ...current, contentQuery: "", contentResults: undefined }))}
+                      >
+                        <X size={13} />
+                      </button>
+                    ) : null}
+                  </form>
+                ) : (
+                  <form
+                    className="file-search-row"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void searchFilePanel();
+                    }}
+                  >
+                    <Search size={14} />
+                    <input
+                      value={filePanel.search || ""}
+                      placeholder="Поиск файлов"
+                      onChange={(event) => setFilePanel((current) => ({ ...current, search: event.target.value }))}
+                    />
+                    {filePanel.search ? (
+                      <button type="button" onClick={() => setFilePanel((current) => ({ ...current, search: "", searchResults: undefined }))}>
+                        <X size={13} />
+                      </button>
+                    ) : null}
+                  </form>
+                )}
                 <div className="file-tree-list">
-                  {filePanel.searchLoading ? (
+                  {filePanel.mode === "content" ? (
+                    filePanel.contentLoading ? (
+                      <div className="panel-loading compact">
+                        <Loader2 size={16} className="spin" />
+                        Ищу совпадения
+                      </div>
+                    ) : filePanel.contentResults ? (
+                      filePanel.contentResults.length ? (
+                        filePanel.contentResults.map((match, index) => (
+                          <button
+                            key={`${match.path}-${match.line}-${index}`}
+                            type="button"
+                            className={`file-tree-row file content-match ${filePanel.file?.path === match.path && filePanel.pendingLine === match.line ? "active" : ""}`}
+                            onClick={() => void openProjectFileAtLine(match.path, match.line)}
+                          >
+                            <FileText size={15} />
+                            <span>
+                              {match.path}
+                              <small className="content-match-text">{match.text.trim()}</small>
+                            </span>
+                            <small>:{match.line}</small>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="folder-empty">Совпадений не найдено.</div>
+                      )
+                    ) : (
+                      <div className="folder-empty">Введите строку для поиска по содержимому файлов.</div>
+                    )
+                  ) : filePanel.searchLoading ? (
                     <div className="panel-loading compact">
                       <Loader2 size={16} className="spin" />
                       Ищу файлы
@@ -6160,6 +6277,19 @@ export default function App() {
                     </div>
                     {filePanel.file.binary ? (
                       <div className="file-empty-preview">Бинарный файл. Предпросмотр скрыт.</div>
+                    ) : filePanel.pendingLine ? (
+                      <pre className="file-preview-content lined" ref={filePreviewRef}>
+                        {(filePanel.file.content || "").split("\n").map((lineText, index) => (
+                          <div
+                            key={index}
+                            data-line={index + 1}
+                            className={filePanel.pendingLine === index + 1 ? "preview-line active" : "preview-line"}
+                          >
+                            <span className="preview-line-number">{index + 1}</span>
+                            <span className="preview-line-text">{lineText || " "}</span>
+                          </div>
+                        ))}
+                      </pre>
                     ) : (
                       <pre className="file-preview-content">{filePanel.file.content || "Файл пустой."}</pre>
                     )}

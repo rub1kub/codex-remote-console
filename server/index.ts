@@ -41,6 +41,7 @@ import {
   readProjectDiff,
   runProjectQuickCommand,
   searchProjectFiles,
+  searchProjectFileContents,
   updateCodexCli
 } from "./remoteExec";
 import {
@@ -441,6 +442,16 @@ export async function startServer(
       const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
       const query = typeof request.body?.query === "string" ? request.body.query : "";
       response.json({ files: await searchProjectFiles(profile, secrets, query) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/project/search-content", async (request, response, next) => {
+    try {
+      const { profile, secrets } = await getProfileWithSecrets(request.body ?? {});
+      const query = typeof request.body?.query === "string" ? request.body.query : "";
+      response.json({ matches: await searchProjectFileContents(profile, secrets, query) });
     } catch (error) {
       next(error);
     }

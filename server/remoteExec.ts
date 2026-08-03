@@ -9,6 +9,7 @@ import type {
   AppPreferences,
   CodexProfile,
   ConnectionSecrets,
+  ContentSearchMatch,
   DirectoryListInput,
   DirectoryEntry,
   DirectoryListing,
@@ -759,6 +760,42 @@ export async function searchProjectFiles(
     .filter((file) => file.toLowerCase().includes(cleanQuery))
     .slice(0, 30)
     .map((file) => ({ path: file, label: path.posix.basename(file) }));
+}
+
+function parseContentSearchLine(line: string): ContentSearchMatch | null {
+  const match = line.match(/^(.+?):(\d+):(.*)$/);
+  if (!match) return null;
+  const file = match[1].replace(/^\.\//, "");
+  const lineNumber = Number(match[2]);
+  if (!file || !Number.isFinite(lineNumber)) return null;
+  const text = match[3].length > 400 ? `${match[3].slice(0, 400)}…` : match[3];
+  return { path: file, line: lineNumber, text };
+}
+
+export async function searchProjectFileContents(
+  profile: CodexProfile,
+  secrets: ConnectionSecrets,
+  query: string
+): Promise<ContentSearchMatch[]> {
+  const cleanQuery = cleanText(query);
+  if (!cleanQuery) return [];
+
+  const command = [
+    "set +e",
+    ...projectConfinementPrelude,
+    "if command -v rg >/dev/null 2>&1; then",
+    `rg --line-number --no-heading --hidden -M 400 -g '!.git' -g '!node_modules' -g '!dist' -g '!build' -- ${shellQuote(cleanQuery)} . 2>/dev/null | head -200;`,
+    "else",
+    `grep -rnI --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=build -- ${shellQuote(cleanQuery)} . 2>/dev/null | head -200;`,
+    "fi"
+  ].join("\n");
+
+  const result = await runProfileCommand(profile, secrets, command);
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => parseContentSearchLine(line))
+    .filter((match): match is ContentSearchMatch => Boolean(match))
+    .slice(0, 200);
 }
 
 function parentProjectPath(value: string) {
