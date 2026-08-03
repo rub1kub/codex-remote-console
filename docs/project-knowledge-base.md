@@ -1,17 +1,13 @@
 # Codex Remote: полная база знаний проекта
 
-Дата актуализации: 2026-08-02
+Дата актуализации: 2026-08-03
 
-Версия приложения на момент среза: `1.5.2`
+Версия приложения на момент среза: `1.5.3`
 
-Ветка: `main`. Последний коммит: `5992d28` ("Release Codex Remote 1.5.1 UI
-fixes"). **Важно**: этот документ описывает текущее рабочее дерево, а не сам
-коммит `5992d28` — с этого коммита накоплены большие незакоммиченные изменения
-(Windows-фикс, полный Apple-style redesign, цветовая чистка, контекстное меню
-проекта; см. `git status`/`git diff --stat` и свежие записи в `CHANGELOG.md`
-для точного списка файлов). Если предстоит `git checkout`/`git stash`/новый
-worktree — сначала свериться с `git status`, иначе можно потерять эти правки:
-они нигде не закоммичены и не запушены.
+Ветка: `main`. Документ описывает текущее source tree; точную ревизию и наличие
+локальных правок перед любыми Git-операциями нужно проверять через `git status`
+и `git log`. Генерируемые `dist/`, `build/server/` и `release/` не являются
+источником истины.
 
 Этот документ предназначен для разработчиков и автономных агентов. Он является
 канонической картой проекта: что именно построено, как проходят данные, где
@@ -87,9 +83,8 @@ flowchart LR
 - На момент среза репозиторий публичный.
 - `private: true` в `package.json` запрещает случайную публикацию пакета в npm,
   но не управляет видимостью GitHub-репозитория.
-- `main`, `origin/main` и tag `v1.5.1` указывают на commit `5992d28`; локальное
-  рабочее дерево ушло от него вперед незакоммиченными изменениями (см. шапку
-  документа) и ещё не запушено.
+- Последний опубликованный стабильный релиз перед этим срезом — `v1.5.2`;
+  состояние ветки и тегов всегда проверяется непосредственно через Git.
 - В tracked tree нет GitHub Actions и нет файла `LICENSE`.
 - Отсутствие LICENSE означает, что публичный просмотр кода сам по себе не задает
   явных прав на распространение и модификацию.
@@ -386,7 +381,9 @@ ssh -T [options] target "bash -lc '<preflight && cd project && codex app-server 
 
 - получает монотонный ID;
 - сохраняется в `pending`;
-- имеет timeout 45 секунд;
+- по умолчанию имеет timeout 45 секунд;
+- страницы истории имеют timeout 60 секунд;
+- legacy fallback `thread/read includeTurns` имеет timeout 180 секунд;
 - resolve/reject происходит по response ID;
 - при disconnect все pending requests отклоняются.
 
@@ -394,7 +391,11 @@ ssh -T [options] target "bash -lc '<preflight && cd project && codex app-server 
 
 - `thread/list` фильтруется по `cwd` проекта.
 - Источники: `cli`, `appServer`, `vscode`, `exec`.
-- `thread/read` читает историю, но не прикрепляет runtime turn state.
+- `thread/read includeTurns: false` читает метаданные, затем история собирается
+  постранично через `thread/turns/list` и `thread/items/list` в хронологическом
+  порядке; старые версии app-server используют fallback
+  `thread/read includeTurns: true`.
+- Чтение истории не прикрепляет runtime turn state.
 - Поэтому перед отправкой в старый thread обязательно выполняется
   `thread/resume`.
 - Если thread отсутствует, `thread/start` создает новый.
@@ -1026,6 +1027,10 @@ redesign.css с меньшей специфичностью — проверят
 `.project-row` занимает полную ширину сайдбара. Горизонтальный flex-layout
 делит узкую панель между серверами и делает имя проекта и путь нечитаемыми.
 
+Выбор проекта или чата обозначается только нейтральной заливкой без синей
+границы и без accent-иконки. Синий spinner означает процесс подключения,
+зелёная точка появляется только после статуса `connected`.
+
 ### Design tokens
 
 Корневой scope: `.command-studio`.
@@ -1076,6 +1081,7 @@ colors прокидываются из preferences.
 | `npm run test:task-protocol` | Turn identity и completion decisions |
 | `npm run test:model-catalog` | Models/reasoning/service tiers |
 | `npm run test:message-history` | Удаление дублей user messages |
+| `npm run test:codex-history` | Пагинация turns/items и legacy fallback истории |
 
 ### Local integration
 
@@ -1095,7 +1101,8 @@ colors прокидываются из preferences.
 - settings scroll reset;
 - atomic theme switch;
 - composer/footer alignment;
-- отсутствие outline active project;
+- нейтральный active project без accent outline/icon;
+- синий connecting spinner и нейтральный active thread без левой границы;
 - вертикальную раскладку server groups и полноширинные project rows;
 - вертикальную геометрию длинных messages;
 - system dark theme.
@@ -1142,7 +1149,7 @@ task.
 | Turn completion/queue | task-protocol + контролируемый live turn |
 | Remote files/path | shell + `smoke:ssh` |
 | Git mutation | project-tools; live Git только на disposable repo |
-| Codex bridge/protocol | typecheck + live app-server connect/turn |
+| Codex bridge/protocol | typecheck + codex-history + live app-server сценарий |
 | CLI install/update | missing/broken/current на disposable host |
 | Electron IPC/window | build + Electron manual smoke |
 | Packaging/release | build/dist + release QA |
@@ -1342,7 +1349,9 @@ Assistant text сам по себе не означает завершение.
 8. После закрытия WebSocket renderer не создает новый socket; reconnect bridge
    зависит от живого socket.
 9. Queue payload не персистентен.
-10. RPC timeout 45 секунд может быть мал для отдельных control requests.
+10. Долгие control requests вне постраничной истории всё ещё ограничены общим
+    RPC timeout 45 секунд; старые app-server используют более тяжёлый legacy
+    history fallback.
 11. Real SSH smoke не покрывает full Codex turn, approvals и reconnect.
 12. Нет CI workflow в tracked repository; проверки сейчас зависят от локального
     release процесса.

@@ -32,6 +32,25 @@ type ModelListPage = {
   nextCursor?: string | null;
 };
 
+type ThreadReadResult = {
+  thread?: Record<string, unknown> & { turns?: unknown[] };
+};
+
+type ThreadTurn = Record<string, unknown> & {
+  id?: string;
+  items?: unknown[];
+};
+
+type ThreadTurnsPage = {
+  data?: ThreadTurn[];
+  nextCursor?: string | null;
+};
+
+type ThreadItemsPage = {
+  data?: unknown[];
+  nextCursor?: string | null;
+};
+
 type BridgeEvents = {
   notification: [JsonRpcMessage];
   stderr: [string];
@@ -39,6 +58,15 @@ type BridgeEvents = {
 };
 
 const REQUEST_TIMEOUT_MS = 45_000;
+const HISTORY_PAGE_TIMEOUT_MS = 60_000;
+const LEGACY_THREAD_READ_TIMEOUT_MS = 180_000;
+const HISTORY_TURN_PAGE_SIZE = 50;
+const HISTORY_ITEM_PAGE_SIZE = 50;
+
+function isUnsupportedHistoryPagination(error: unknown) {
+  return error instanceof Error &&
+    /method not found|unknown method|unsupported method|not implemented/i.test(error.message);
+}
 
 function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`;
@@ -311,7 +339,7 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       clientInfo: {
         name: "codex_remote_console",
         title: "Codex Remote Console",
-        version: "1.5.2"
+        version: "1.5.3"
       },
       capabilities: {
         experimentalApi: true
@@ -367,7 +395,99 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
   async readThread(threadId: string) {
     // Reading history does not attach the app-server turn state.
     // Old threads must be resumed before sending a new turn.
-    return this.request("thread/read", { threadId, includeTurns: true });
+    const metadata = (await this.request("thread/read", {
+      threadId,
+      includeTurns: false
+    })) as ThreadReadResult;
+
+    try {
+      const turns = await this.readThreadTurns(threadId);
+      if (!metadata.thread) return metadata;
+      return {
+        ...metadata,
+        thread: {
+          ...metadata.thread,
+          turns
+        }
+      };
+    } catch (error) {
+      if (!isUnsupportedHistoryPagination(error)) throw error;
+      return this.request(
+        "thread/read",
+        { threadId, includeTurns: true },
+        LEGACY_THREAD_READ_TIMEOUT_MS
+      );
+    }
+  }
+
+  private async readThreadTurns(threadId: string) {
+    const turns: ThreadTurn[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | null = null;
+
+    do {
+      const page = (await this.request(
+        "thread/turns/list",
+        {
+          threadId,
+          cursor,
+          limit: HISTORY_TURN_PAGE_SIZE,
+          sortDirection: "asc",
+          itemsView: "notLoaded"
+        },
+        HISTORY_PAGE_TIMEOUT_MS
+      )) as ThreadTurnsPage;
+
+      for (const turn of page.data ?? []) {
+        if (!turn.id) throw new Error("Codex returned a history turn without an id.");
+        turns.push({
+          ...turn,
+          items: await this.readThreadItems(threadId, turn.id),
+          itemsView: "full"
+        });
+      }
+
+      cursor = this.nextHistoryCursor(page.nextCursor, seenCursors);
+    } while (cursor);
+
+    return turns;
+  }
+
+  private async readThreadItems(threadId: string, turnId: string) {
+    const items: unknown[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | null = null;
+
+    do {
+      const page = (await this.request(
+        "thread/items/list",
+        {
+          threadId,
+          turnId,
+          cursor,
+          limit: HISTORY_ITEM_PAGE_SIZE,
+          sortDirection: "asc"
+        },
+        HISTORY_PAGE_TIMEOUT_MS
+      )) as ThreadItemsPage;
+      items.push(...(page.data ?? []));
+      cursor = this.nextHistoryCursor(page.nextCursor, seenCursors);
+    } while (cursor);
+
+    return items;
+  }
+
+  private nextHistoryCursor(
+    value: string | null | undefined,
+    seenCursors: Set<string>
+  ) {
+    const cursor = typeof value === "string" && value ? value : null;
+    if (!cursor) return null;
+    if (seenCursors.has(cursor)) {
+      throw new Error("Codex returned a repeated history cursor.");
+    }
+    seenCursors.add(cursor);
+    return cursor;
   }
 
   async archiveThread(threadId: string) {
@@ -622,7 +742,11 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
     this.rpcStream?.write(`${JSON.stringify(message)}\n`);
   }
 
-  private request(method: string, params: unknown) {
+  private request(
+    method: string,
+    params: unknown,
+    timeoutMs = REQUEST_TIMEOUT_MS
+  ) {
     if (!this.canWriteRpc()) {
       return Promise.reject(new Error("Codex app-server is not connected."));
     }
@@ -633,8 +757,8 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`${method} timed out after ${REQUEST_TIMEOUT_MS}ms.`));
-      }, REQUEST_TIMEOUT_MS);
+        reject(new Error(`${method} timed out after ${timeoutMs}ms.`));
+      }, timeoutMs);
 
       this.pending.set(id, { resolve, reject, timer });
       this.writeRpc(message);

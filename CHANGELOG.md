@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.3 - 2026-08-03
+
+- Fixed large remote chats failing to open after 45 seconds: history now loads through bounded `thread/turns/list` and `thread/items/list` pages; older Codex versions fall back to the monolithic read with a dedicated 180-second timeout.
+- Made selected projects and chats visually neutral, without a blue fill, blue folder icon, or left accent edge that could be mistaken for connection state.
+- Made the connecting spinner blue; green remains reserved for the connected status dot and successful outcomes.
+
 ## 1.5.2 - 2026-07-27
 
 - Rebuilt the window as a native macOS-style shell: the title strip is gone — the sidebar material runs the full window height with traffic lights floating над ним, the chat header became a transparent draggable toolbar with a settings button, and hard border lines were replaced by scroll-edge gradients.

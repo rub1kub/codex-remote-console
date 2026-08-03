@@ -144,23 +144,24 @@ try {
   );
 
   await page.locator(".project-list").evaluate((list) => {
-    const createGroup = (server, project, active = false) => {
+    const createGroup = (server, project, state = "") => {
       const group = document.createElement("section");
       group.className = "project-group ui-project-group";
       group.innerHTML = `
         <div class="server-row"><span>${server}</span></div>
-        <div class="project-row ${active ? "active ui-project-fixture" : ""}">
+        <div class="project-row ${state}">
           <span class="project-icon">●</span>
           <span class="project-copy">
             <span class="project-name-line"><span class="project-name">${project}</span></span>
             <small class="project-path">/workspace/${project}</small>
           </span>
+          ${state.includes("connecting") ? '<span class="project-activity spin">◌</span>' : ""}
         </div>
       `;
       return group;
     };
-    list.append(createGroup("first-server", "first-project", true));
-    list.append(createGroup("second-server", "second-project"));
+    list.append(createGroup("first-server", "first-project", "active ui-project-fixture"));
+    list.append(createGroup("second-server", "second-project", "active connecting ui-project-connecting-fixture"));
   });
   const projectListBox = await page.locator(".project-list").boundingBox();
   const projectGroups = page.locator(".ui-project-group");
@@ -178,11 +179,72 @@ try {
   assert(firstProjectRowBox.width >= projectListBox.width - 4, "project row does not fill the sidebar width");
   const activeProjectStyle = await page.locator(".ui-project-fixture").evaluate((element) => {
     const style = getComputedStyle(element);
-    return { borderColor: style.borderColor, boxShadow: style.boxShadow };
+    const probe = document.createElement("span");
+    probe.style.background = "var(--surface-2)";
+    probe.style.color = "var(--text-1)";
+    element.append(probe);
+    const probeStyle = getComputedStyle(probe);
+    const result = {
+      borderColor: style.borderColor,
+      boxShadow: style.boxShadow,
+      backgroundColor: style.backgroundColor,
+      neutralBackground: probeStyle.backgroundColor,
+      iconColor: getComputedStyle(element.querySelector(".project-icon")).color,
+      neutralIconColor: probeStyle.color
+    };
+    probe.remove();
+    return result;
   });
   assert(activeProjectStyle.borderColor === "rgba(0, 0, 0, 0)", "active project still has a colored border");
-  assert(activeProjectStyle.boxShadow === "none", "active project still has a purple inset outline");
+  assert(activeProjectStyle.boxShadow === "none", "active project still has an accent outline");
+  assert(
+    activeProjectStyle.backgroundColor === activeProjectStyle.neutralBackground,
+    "active project uses an accent-tinted background"
+  );
+  assert(activeProjectStyle.iconColor === activeProjectStyle.neutralIconColor, "active project icon still implies connection");
+  const connectingProjectStyle = await page.locator(".ui-project-connecting-fixture").evaluate((element) => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--ai-accent)";
+    element.append(probe);
+    const result = {
+      spinnerColor: getComputedStyle(element.querySelector(".project-activity")).color,
+      accentColor: getComputedStyle(probe).color
+    };
+    probe.remove();
+    return result;
+  });
+  assert(connectingProjectStyle.spinnerColor === connectingProjectStyle.accentColor, "connecting spinner is not blue");
   await projectGroups.evaluateAll((groups) => groups.forEach((group) => group.remove()));
+
+  await page.locator(".thread-list").evaluate((list) => {
+    const fixture = document.createElement("div");
+    fixture.className = "thread-row active ui-thread-fixture";
+    fixture.innerHTML = '<button class="thread-main"><span>Selected thread</span><small>now</small></button>';
+    list.append(fixture);
+  });
+  const activeThreadStyle = await page.locator(".ui-thread-fixture").evaluate((element) => {
+    const style = getComputedStyle(element);
+    const probe = document.createElement("span");
+    probe.style.background = "var(--surface-2)";
+    element.append(probe);
+    const result = {
+      borderColor: style.borderColor,
+      boxShadow: style.boxShadow,
+      transform: style.transform,
+      backgroundColor: style.backgroundColor,
+      neutralBackground: getComputedStyle(probe).backgroundColor
+    };
+    probe.remove();
+    return result;
+  });
+  assert(activeThreadStyle.borderColor === "rgba(0, 0, 0, 0)", "active thread still has a colored border");
+  assert(activeThreadStyle.boxShadow === "none", "active thread still has a left accent edge");
+  assert(activeThreadStyle.transform === "none", "active thread still shifts sideways");
+  assert(
+    activeThreadStyle.backgroundColor === activeThreadStyle.neutralBackground,
+    "active thread uses an accent-tinted background"
+  );
+  await page.locator(".ui-thread-fixture").evaluate((element) => element.remove());
 
   await page.locator(".messages").evaluate((messages) => {
     const fixture = document.createElement("section");

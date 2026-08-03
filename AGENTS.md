@@ -65,6 +65,7 @@ Choose checks by the changed surface:
 - Shared TypeScript or API contracts: `npm run typecheck`.
 - Turn lifecycle: `npm run test:task-protocol`.
 - Restored chat history: `npm run test:message-history`.
+- Paginated Codex history transport: `npm run test:codex-history`.
 - Model catalog: `npm run test:model-catalog`.
 - File/shell confinement: `npm run test:shell`.
 - Git/checkpoint/AGENTS.md tools: `npm run test:project-tools`.

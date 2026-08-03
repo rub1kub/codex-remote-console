@@ -432,7 +432,7 @@ html.theme-snap *::after {
 
 .command-studio .project-row.active {
   border-color: transparent;
-  background: color-mix(in srgb, var(--surface-active) 74%, var(--surface-1));
+  background: var(--surface-2);
   box-shadow: none;
 }
 
@@ -441,7 +441,7 @@ html.theme-snap *::after {
 }
 
 .command-studio .project-row.active .project-icon {
-  color: var(--ai-accent);
+  color: var(--text-1);
 }
 
 .command-studio .project-copy {
@@ -489,6 +489,10 @@ html.theme-snap *::after {
 
 .command-studio .project-activity {
   margin-left: auto;
+}
+
+.command-studio .project-row.connecting .project-activity {
+  color: var(--ai-accent);
 }
 
 .command-studio .project-dot {
@@ -578,9 +582,10 @@ html.theme-snap *::after {
 }
 
 .command-studio .thread-row.active {
-  border-color: color-mix(in srgb, var(--ai-accent) 16%, transparent);
-  background: var(--surface-active);
-  box-shadow: inset 2px 0 0 var(--ai-accent);
+  border-color: transparent;
+  background: var(--surface-2);
+  box-shadow: none;
+  transform: none;
 }
 
 .command-studio .thread-main {
