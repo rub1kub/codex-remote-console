@@ -44,7 +44,7 @@ import {
   X,
   Zap
 } from "lucide-react";
-import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { TaskCenter } from "./TaskCenter";
@@ -105,6 +105,7 @@ declare global {
   interface Window {
     codexRemote?: {
       openWorkspace(profileId: string): Promise<boolean>;
+      setTheme?(theme: "light" | "dark" | "system"): Promise<boolean>;
     };
   }
 }
@@ -236,6 +237,13 @@ type AppUpdatePanelState = {
   result?: AppUpdateStatus;
   error?: string;
 };
+
+const platformClassName =
+  typeof navigator !== "undefined" && /Win/i.test(navigator.platform)
+    ? "platform-win"
+    : typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)
+      ? "platform-mac"
+      : "platform-linux";
 
 const uiStateStorageKey = "codex-remote-ui-state";
 const activeTaskStorageKey = "codex-remote-active-task";
@@ -397,6 +405,42 @@ function writeRecentProjectPath(pathValue: string) {
   if (!clean) return;
   const next = [clean, ...readRecentProjectPaths().filter((item) => item !== clean)].slice(0, 8);
   window.localStorage.setItem(recentProjectPathsStorageKey, JSON.stringify(next));
+}
+
+const settingsTabs = [
+  { id: "appearance", label: "Внешний вид" },
+  { id: "behavior", label: "Поведение" },
+  { id: "codex", label: "Codex" },
+  { id: "app", label: "Приложение" },
+  { id: "server", label: "Сервер" },
+  { id: "about", label: "О приложении" }
+] as const;
+
+type SettingsTabId = (typeof settingsTabs)[number]["id"];
+
+const sidebarWidthStorageKey = "codex-remote-sidebar-width";
+const sidebarCollapsedWidth = 58;
+const sidebarMinWidth = 240;
+const sidebarMaxWidth = 340;
+const sidebarDefaultWidth = 282;
+const sidebarCollapseThreshold = 150;
+
+function readStoredSidebarWidth() {
+  if (typeof window === "undefined") return sidebarDefaultWidth;
+  const raw = Number(window.localStorage.getItem(sidebarWidthStorageKey));
+  return Number.isFinite(raw) && raw >= sidebarMinWidth && raw <= sidebarMaxWidth
+    ? raw
+    : sidebarDefaultWidth;
+}
+
+// Soft boundary: the further past the edge, the less the panel follows.
+function rubberband(overshoot: number, dimension = 320, constant = 0.55) {
+  return (overshoot * dimension * constant) / (dimension + constant * Math.abs(overshoot));
+}
+
+// Project where a flick would land (exponential decay, as in scroll physics).
+function projectMomentum(velocityPxPerSecond: number, decelerationRate = 0.998) {
+  return ((velocityPxPerSecond / 1000) * decelerationRate) / (1 - decelerationRate);
 }
 
 function readSidebarCollapsed() {
@@ -1078,6 +1122,12 @@ export default function App() {
     x: number;
     y: number;
   } | null>(null);
+  const [projectMenu, setProjectMenu] = useState<{
+    profile: CodexProfile;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [deletingProfile, setDeletingProfile] = useState<CodexProfile | null>(null);
   const [isComposerMenuOpen, setComposerMenuOpen] = useState(false);
   const [openComposerSubmenu, setOpenComposerSubmenu] = useState<"model" | "speed" | null>(null);
   const [renamingThread, setRenamingThread] = useState<CodexThread | null>(null);
@@ -1130,6 +1180,25 @@ export default function App() {
   const [isReconnectPaused, setReconnectPaused] = useState(false);
   const [recentProjectPaths, setRecentProjectPaths] = useState<string[]>(() => readRecentProjectPaths());
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>("appearance");
+  const [systemThemeIsDark, setSystemThemeIsDark] = useState(
+    () => typeof window !== "undefined" && Boolean(window.matchMedia?.("(prefers-color-scheme: dark)").matches)
+  );
+  const shellRef = useRef<HTMLElement | null>(null);
+  const sidebarSpringRef = useRef<{
+    frame: number | null;
+    timer: number | null;
+    value: number;
+    velocity: number;
+    target: number;
+  } | null>(null);
+  const sidebarDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startWidth: number;
+    history: Array<{ t: number; x: number }>;
+  } | null>(null);
+  const finishSidebarMotionRef = useRef<((target: number) => void) | null>(null);
   const [isTaskCenterOpen, setTaskCenterOpen] = useState(false);
   const [isProjectWorkbenchOpen, setProjectWorkbenchOpen] = useState(false);
   const [isResponseInspectorOpen, setResponseInspectorOpen] = useState(false);
@@ -1318,12 +1387,10 @@ export default function App() {
   const selectedSpeedLabel =
     speedOptions.find((option) => option.value === preferences.responseSpeed)?.label ||
     "скорость";
-  const systemThemeIsDark =
-    typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches;
   const colorFallbackIsDark = preferences.theme === "dark" || (preferences.theme === "system" && systemThemeIsDark);
-  const accentPickerValue = preferences.accentColor || (colorFallbackIsDark ? "#9a79ff" : "#7357e8");
-  const connectionPickerValue = preferences.connectionColor || (colorFallbackIsDark ? "#61cfb2" : "#198c76");
-  const userMessagePickerValue = preferences.userMessageColor || (colorFallbackIsDark ? "#20282d" : "#273036");
+  const accentPickerValue = preferences.accentColor || (colorFallbackIsDark ? "#0a84ff" : "#007aff");
+  const connectionPickerValue = preferences.connectionColor || (colorFallbackIsDark ? "#30d158" : "#248a3d");
+  const userMessagePickerValue = preferences.userMessageColor || (colorFallbackIsDark ? "#0a84ff" : "#007aff");
   const selectedCliStatus = cliProfileId === selectedProfileId ? cliStatus : null;
   const showFinishedTaskStatus =
     Boolean(taskCompletedAt) && taskNow - (taskCompletedAt ?? 0) < 12_000;
@@ -1370,6 +1437,47 @@ export default function App() {
     didCheckAppUpdateRef.current = true;
     void checkAppUpdate();
   }, [preferences.autoCheckAppUpdates]);
+
+  useEffect(() => {
+    window.codexRemote?.setTheme?.(preferences.theme).catch(() => undefined);
+  }, [preferences.theme]);
+
+  useEffect(() => {
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!media) return;
+    const onChange = (event: MediaQueryListEvent) => setSystemThemeIsDark(event.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (shell && !readSidebarCollapsed()) {
+      const storedWidth = readStoredSidebarWidth();
+      if (storedWidth !== sidebarDefaultWidth) {
+        shell.style.setProperty("--sidebar-width", `${storedWidth}px`);
+      }
+    }
+    // rAF pauses in hidden windows; land the panel instantly instead of
+    // leaving it frozen mid-flight.
+    const settleHiddenSpring = () => {
+      const spring = sidebarSpringRef.current;
+      if (document.visibilityState === "hidden" && spring) {
+        if (spring.frame) window.cancelAnimationFrame(spring.frame);
+        if (spring.timer) window.clearTimeout(spring.timer);
+        sidebarSpringRef.current = null;
+        finishSidebarMotionRef.current?.(spring.target);
+      }
+    };
+    document.addEventListener("visibilitychange", settleHiddenSpring);
+    return () => {
+      document.removeEventListener("visibilitychange", settleHiddenSpring);
+      const spring = sidebarSpringRef.current;
+      if (spring?.frame) window.cancelAnimationFrame(spring.frame);
+      if (spring?.timer) window.clearTimeout(spring.timer);
+      sidebarSpringRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     preferencesRef.current = preferences;
@@ -1506,6 +1614,7 @@ export default function App() {
   useEffect(() => {
     const closeTransientMenus = () => {
       setThreadMenu(null);
+      setProjectMenu(null);
       setComposerMenuOpen(false);
       setOpenComposerSubmenu(null);
     };
@@ -3033,6 +3142,25 @@ export default function App() {
     });
   }
 
+  function openProjectContextMenu(event: MouseEvent, profile: CodexProfile) {
+    event.preventDefault();
+    event.stopPropagation();
+    const menuWidth = 200;
+    const menuHeight = 108;
+    setProjectMenu({
+      profile,
+      x: Math.min(event.clientX, window.innerWidth - menuWidth - 8),
+      y: Math.min(event.clientY, window.innerHeight - menuHeight - 8)
+    });
+  }
+
+  async function confirmDeleteProfile() {
+    if (!deletingProfile) return;
+    const profile = deletingProfile;
+    setDeletingProfile(null);
+    await removeProfile(profile);
+  }
+
   function toggleComposerMenu(event: MouseEvent) {
     event.stopPropagation();
     if (!isComposerMenuOpen && connectionRef.current === "connected") {
@@ -3773,7 +3901,10 @@ export default function App() {
   const rootClassName = [
     "app-shell",
     "command-studio",
+    platformClassName,
     `theme-${preferences.theme}`,
+    // "system" resolves to a concrete class so every themed rule applies.
+    preferences.theme === "system" ? (systemThemeIsDark ? "theme-dark" : "theme-light") : "",
     preferences.animations ? "motion-on" : "motion-off",
     preferences.compactMode ? "compact-mode" : "",
     isSidebarCollapsed ? "sidebar-collapsed" : "",
@@ -3794,7 +3925,7 @@ export default function App() {
     ...(preferences.userMessageColor ? { "--user-message-bg": preferences.userMessageColor } : {})
   } as CSSProperties;
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.5.1";
+  const appVersion = "1.5.2";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -4141,17 +4272,186 @@ export default function App() {
     action.run();
   }
 
+  const sidebarMotionEnabled =
+    preferences.animations &&
+    !(typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+
+  function setSidebarWidthVar(width: number | null) {
+    const shell = shellRef.current;
+    if (!shell) return;
+    if (width === null) {
+      shell.style.removeProperty("--sidebar-width");
+    } else {
+      shell.style.setProperty("--sidebar-width", `${width}px`);
+    }
+  }
+
+  function currentSidebarWidth() {
+    const spring = sidebarSpringRef.current;
+    if (spring) return spring.value;
+    const sidebar = shellRef.current?.querySelector<HTMLElement>(".sidebar");
+    if (sidebar) return sidebar.getBoundingClientRect().width;
+    return isSidebarCollapsed ? sidebarCollapsedWidth : readStoredSidebarWidth();
+  }
+
+  function stopSidebarSpring() {
+    const spring = sidebarSpringRef.current;
+    if (spring?.frame) window.cancelAnimationFrame(spring.frame);
+    if (spring?.timer) window.clearTimeout(spring.timer);
+    sidebarSpringRef.current = null;
+  }
+
+  function finishSidebarMotion(target: number) {
+    if (target <= sidebarCollapsedWidth + 1) {
+      setSidebarWidthVar(null);
+      setSidebarCollapsed(true);
+    } else {
+      setSidebarWidthVar(target);
+      setSidebarCollapsed(false);
+      window.localStorage.setItem(sidebarWidthStorageKey, String(Math.round(target)));
+    }
+  }
+  finishSidebarMotionRef.current = finishSidebarMotion;
+
+  function springSidebarTo(target: number, initialVelocity = 0) {
+    if (!sidebarMotionEnabled) {
+      stopSidebarSpring();
+      finishSidebarMotion(target);
+      return;
+    }
+
+    const existing = sidebarSpringRef.current;
+    if (existing) {
+      // Retarget mid-flight; velocity carries over so there is no hard cut.
+      existing.target = target;
+      if (initialVelocity !== 0) existing.velocity = initialVelocity;
+      if (target > sidebarCollapsedWidth + 1) setSidebarCollapsed(false);
+      return;
+    }
+
+    const spring = {
+      frame: null as number | null,
+      timer: null as number | null,
+      value: currentSidebarWidth(),
+      velocity: initialVelocity,
+      target
+    };
+    sidebarSpringRef.current = spring;
+    if (target > sidebarCollapsedWidth + 1) setSidebarCollapsed(false);
+
+    // Critically damped: settles in ~0.35s with no overshoot.
+    const stiffness = 320;
+    const damping = 2 * Math.sqrt(stiffness);
+    let last = performance.now();
+
+    const step = (now: number) => {
+      if (sidebarSpringRef.current !== spring) return;
+      if (spring.timer !== null) {
+        window.clearTimeout(spring.timer);
+        spring.timer = null;
+      }
+      const dt = Math.min((now - last) / 1000, 1 / 30);
+      last = now;
+      const displacement = spring.value - spring.target;
+      spring.velocity += (-stiffness * displacement - damping * spring.velocity) * dt;
+      spring.value += spring.velocity * dt;
+      if (Math.abs(spring.value - spring.target) < 0.5 && Math.abs(spring.velocity) < 8) {
+        sidebarSpringRef.current = null;
+        finishSidebarMotion(spring.target);
+        return;
+      }
+      setSidebarWidthVar(spring.value);
+      schedule();
+    };
+
+    // rAF when frames flow; a timeout fallback keeps the spring advancing
+    // when the window is occluded and rAF starves.
+    const schedule = () => {
+      spring.frame = window.requestAnimationFrame(step);
+      spring.timer = window.setTimeout(() => {
+        if (sidebarSpringRef.current !== spring) return;
+        if (spring.frame) window.cancelAnimationFrame(spring.frame);
+        step(performance.now());
+      }, 64);
+    };
+
+    schedule();
+  }
+
+  function toggleSidebar() {
+    springSidebarTo(isSidebarCollapsed ? readStoredSidebarWidth() : sidebarCollapsedWidth);
+  }
+
+  function sidebarWidthWithRubber(raw: number) {
+    if (raw > sidebarMaxWidth) {
+      return sidebarMaxWidth + rubberband(raw - sidebarMaxWidth, 120);
+    }
+    if (raw < sidebarCollapsedWidth) {
+      // The dimension is the room left before the panel hits zero, so the
+      // rubber band can never pull the width negative.
+      return Math.max(
+        sidebarCollapsedWidth - rubberband(sidebarCollapsedWidth - raw, sidebarCollapsedWidth - 16),
+        16
+      );
+    }
+    return raw;
+  }
+
+  function handleSidebarResizeStart(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startWidth = currentSidebarWidth();
+    stopSidebarSpring();
+    setSidebarWidthVar(startWidth);
+    if (isSidebarCollapsed) setSidebarCollapsed(false);
+    sidebarDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth,
+      history: [{ t: performance.now(), x: event.clientX }]
+    };
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is an enhancement; tracking works without it.
+    }
+  }
+
+  function handleSidebarResizeMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = sidebarDragRef.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const now = performance.now();
+    drag.history.push({ t: now, x: event.clientX });
+    while (drag.history.length > 1 && (drag.history.length > 6 || now - drag.history[0].t > 100)) {
+      drag.history.shift();
+    }
+    setSidebarWidthVar(sidebarWidthWithRubber(drag.startWidth + (event.clientX - drag.startX)));
+  }
+
+  function handleSidebarResizeEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = sidebarDragRef.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    sidebarDragRef.current = null;
+    const raw = drag.startWidth + (event.clientX - drag.startX);
+    const first = drag.history[0];
+    const lastSample = drag.history[drag.history.length - 1];
+    const velocity =
+      lastSample.t > first.t ? ((lastSample.x - first.x) / (lastSample.t - first.t)) * 1000 : 0;
+    const projected = raw + projectMomentum(velocity);
+    const target =
+      projected < sidebarCollapseThreshold
+        ? sidebarCollapsedWidth
+        : Math.min(Math.max(projected, sidebarMinWidth), sidebarMaxWidth);
+    springSidebarTo(target, velocity);
+  }
+
   return (
-    <main className={rootClassName} style={themeTokenStyle}>
+    <main className={rootClassName} style={themeTokenStyle} ref={shellRef}>
       <div className="window-titlebar">
-        <span className="window-brand" aria-hidden="true">
-          <span className="window-brand-mark"><Sparkles size={11} /></span>
-          <span>Codex Remote</span>
-        </span>
         <button
           type="button"
           className="titlebar-sidebar-toggle"
-          onClick={() => setSidebarCollapsed((current) => !current)}
+          onClick={toggleSidebar}
           title={isSidebarCollapsed ? "Развернуть боковую панель" : "Свернуть боковую панель"}
           aria-label={isSidebarCollapsed ? "Развернуть боковую панель" : "Свернуть боковую панель"}
         >
@@ -4160,6 +4460,17 @@ export default function App() {
       </div>
 
       <aside className="sidebar">
+        <div
+          className="sidebar-resize-handle"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Изменить ширину боковой панели"
+          onPointerDown={handleSidebarResizeStart}
+          onPointerMove={handleSidebarResizeMove}
+          onPointerUp={handleSidebarResizeEnd}
+          onPointerCancel={handleSidebarResizeEnd}
+          onDoubleClick={() => springSidebarTo(sidebarDefaultWidth)}
+        />
         <section className="project-panel">
           <div className="section-head">
             <div>
@@ -4181,7 +4492,7 @@ export default function App() {
               <section key={group.key} className="project-group">
                 <div className="server-row">
                   <Server size={13} />
-                  {!isSidebarCollapsed && <span>{group.label}</span>}
+                  {!isSidebarCollapsed && <span title={group.label}>{group.label}</span>}
                 </div>
                 {group.profiles.map((profile) => {
                   const isActiveProject = profile.id === selectedProfileId;
@@ -4202,6 +4513,7 @@ export default function App() {
                       className={`project-row ${isActiveProject ? "active" : ""} ${projectConnection}`}
                       onClick={() => runProject(profile.id)}
                       onKeyDown={(event) => handleProjectKey(event, profile.id)}
+                      onContextMenu={(event) => openProjectContextMenu(event, profile)}
                       role="button"
                       tabIndex={connection === "connecting" ? -1 : 0}
                       aria-disabled={connection === "connecting"}
@@ -4246,6 +4558,17 @@ export default function App() {
               <div className="empty-note">Проектов пока нет.</div>
             )}
           </div>
+
+          <button
+            type="button"
+            className="sidebar-tasks-row"
+            onClick={() => setTaskCenterOpen(true)}
+            title="Центр задач"
+          >
+            <Activity size={15} />
+            {!isSidebarCollapsed && <span>Задачи</span>}
+            {activeTaskCount > 0 && <small>{activeTaskCount}</small>}
+          </button>
         </section>
 
         {!isSidebarCollapsed && (
@@ -4300,17 +4623,6 @@ export default function App() {
           </>
         )}
 
-        <nav className="sidebar-footer" aria-label="Инструменты приложения">
-          <button type="button" onClick={() => setTaskCenterOpen(true)} title="Центр задач">
-            <Activity size={15} />
-            {!isSidebarCollapsed && <span>Задачи</span>}
-            {activeTaskCount > 0 && <small>{activeTaskCount}</small>}
-          </button>
-          <button type="button" onClick={openSettings} title="Настройки">
-            <SlidersHorizontal size={15} />
-            {!isSidebarCollapsed && <span>Настройки</span>}
-          </button>
-        </nav>
       </aside>
 
       <section className={`chat ${isResponseInspectorOpen ? "with-inspector" : ""}`}>
@@ -4327,6 +4639,14 @@ export default function App() {
             <button className="header-settings" onClick={openCommand} title="Команды" aria-label="Команды">
               <Command size={15} />
               <span>K</span>
+            </button>
+            <button
+              className="toolbar-icon-button"
+              onClick={openSettings}
+              title="Настройки"
+              aria-label="Настройки"
+            >
+              <SlidersHorizontal size={15} />
             </button>
           </div>
         </header>
@@ -5251,7 +5571,7 @@ export default function App() {
                   type="button"
                   className="danger-button"
                   onClick={() => {
-                    void removeProfile(editingProfile);
+                    setDeletingProfile(editingProfile);
                     setProfileOpen(false);
                   }}
                 >
@@ -6104,6 +6424,69 @@ export default function App() {
         </div>
       )}
 
+      {projectMenu && renderLayer(
+        <div
+          className="thread-context-menu"
+          style={{ left: projectMenu.x, top: projectMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+          role="menu"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              const targetProfile = projectMenu.profile;
+              setProjectMenu(null);
+              openProfile(targetProfile);
+            }}
+          >
+            <Pencil size={15} />
+            Изменить
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="danger"
+            onClick={() => {
+              setDeletingProfile(projectMenu.profile);
+              setProjectMenu(null);
+            }}
+          >
+            <Trash2 size={15} />
+            Удалить
+          </button>
+        </div>
+      )}
+
+      {deletingProfile && renderLayer(
+        <div className="modal-backdrop" role="presentation">
+          <div className="profile-modal chat-modal confirm-modal">
+            <div className="modal-head">
+              <div>
+                <h2>Удалить проект?</h2>
+                <p>{projectTitleOf(deletingProfile)}</p>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setDeletingProfile(null)}>
+                <X size={16} />
+              </button>
+            </div>
+            <p className="confirm-copy">
+              Проект будет удален из списка вместе с сохраненным подключением.
+              Файлы на диске не изменятся. Действие нельзя отменить.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="secondary-button" onClick={() => setDeletingProfile(null)}>
+                Отмена
+              </button>
+              <button type="button" className="danger-button strong" onClick={() => void confirmDeleteProfile()}>
+                <Trash2 size={15} />
+                Удалить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isProjectWorkbenchOpen && selectedProfile && renderLayer(
         <ProjectWorkbench
           open
@@ -6144,8 +6527,24 @@ export default function App() {
               </button>
             </div>
 
+            <div className="settings-layout">
+              <nav className="settings-nav" aria-label="Разделы настроек">
+                {settingsTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={settingsTab === tab.id ? "active" : ""}
+                    onClick={() => {
+                      setSettingsTab(tab.id);
+                      settingsBodyRef.current?.scrollTo({ top: 0 });
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </nav>
             <div ref={settingsBodyRef} className="settings-body">
-              <section className="settings-section">
+              <section className="settings-section" hidden={settingsTab !== "codex"}>
               <h3>Codex</h3>
               <div className="cli-status-card">
                 <div>
@@ -6193,7 +6592,7 @@ export default function App() {
               </label>
             </section>
 
-            <section className="settings-section">
+            <section className="settings-section" hidden={settingsTab !== "app"}>
               <h3>Приложение</h3>
               <div className="cli-status-card">
                 <div>
@@ -6248,7 +6647,7 @@ export default function App() {
               </label>
             </section>
 
-            <section className="settings-section">
+            <section className="settings-section" hidden={settingsTab !== "server"}>
               <h3>Сервер</h3>
               <div className="monitor-grid">
                 <div>
@@ -6345,7 +6744,7 @@ export default function App() {
               </div>
             </section>
 
-            <section className="settings-section about-section">
+            <section className="settings-section about-section" hidden={settingsTab !== "about"}>
               <div className="about-title">
                 <FileText size={16} />
                 <h3>О приложении</h3>
@@ -6378,7 +6777,7 @@ export default function App() {
               </div>
             </section>
 
-            <section className="settings-section">
+            <section className="settings-section" hidden={settingsTab !== "appearance"}>
               <h3>Внешний вид</h3>
               <div className="segmented-control">
                 <button className={preferences.theme === "light" ? "selected" : ""} onClick={() => void updatePreferences({ theme: "light" })}>
@@ -6449,7 +6848,7 @@ export default function App() {
               </label>
             </section>
 
-            <section className="settings-section">
+            <section className="settings-section" hidden={settingsTab !== "behavior"}>
               <h3>Поведение</h3>
               <label className="toggle-row">
                 <span>Enter отправляет сообщение</span>
@@ -6511,6 +6910,7 @@ export default function App() {
                 />
               </label>
               </section>
+            </div>
             </div>
           </aside>
         </div>

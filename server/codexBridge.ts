@@ -1,5 +1,10 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import {
+  spawn,
+  spawnSync,
+  type ChildProcessWithoutNullStreams
+} from "node:child_process";
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
@@ -171,12 +176,63 @@ function buildRemoteCommand(profile: CodexProfile) {
   ].join(" && ");
 }
 
-function buildSpawn(profile: CodexProfile) {
+// npm installs the Codex CLI on Windows as a codex.cmd shim, which Node
+// refuses to spawn directly. Resolve the real target and, for .cmd/.bat
+// shims, run it through cmd.exe with verbatim quoting.
+function resolveWindowsExecutable(binary: string) {
+  const expanded = expandLocalPath(binary);
+  if (expanded.includes("/") || expanded.includes("\\")) {
+    if (existsSync(expanded)) return expanded;
+    for (const extension of [".exe", ".cmd", ".bat"]) {
+      if (existsSync(expanded + extension)) return expanded + extension;
+    }
+    return "";
+  }
+
+  const located = spawnSync("where.exe", [expanded], {
+    encoding: "utf8",
+    windowsHide: true
+  });
+  if (located.status !== 0) return "";
+  const lines = located.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.find((line) => /\.(exe|cmd|bat)$/i.test(line)) || lines[0] || "";
+}
+
+type SpawnConfig = {
+  command: string;
+  args: string[];
+  cwd: string;
+  verbatimArguments?: boolean;
+};
+
+function buildSpawn(profile: CodexProfile): SpawnConfig {
   if (profile.mode === "local") {
+    const cwd = expandLocalPath(profile.projectPath);
+    const appServerArgs = ["app-server", "--listen", "stdio://"];
+
+    if (process.platform === "win32") {
+      const resolved = resolveWindowsExecutable(profile.codexBin || "codex");
+      if (!resolved) {
+        throw new Error(codexMissingMessage(profile));
+      }
+      if (/\.(cmd|bat)$/i.test(resolved)) {
+        return {
+          command: "cmd.exe",
+          args: ["/d", "/s", "/c", `""${resolved}" ${appServerArgs.join(" ")}"`],
+          cwd,
+          verbatimArguments: true
+        };
+      }
+      return { command: resolved, args: appServerArgs, cwd };
+    }
+
     return {
       command: profile.codexBin,
-      args: ["app-server", "--listen", "stdio://"],
-      cwd: expandLocalPath(profile.projectPath)
+      args: appServerArgs,
+      cwd
     };
   }
 
@@ -255,7 +311,7 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       clientInfo: {
         name: "codex_remote_console",
         title: "Codex Remote Console",
-      version: "1.5.1"
+        version: "1.5.2"
       },
       capabilities: {
         experimentalApi: true
@@ -442,7 +498,9 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
     this.proc = spawn(spawnConfig.command, spawnConfig.args, {
       cwd: spawnConfig.cwd,
       env: { ...process.env, NO_COLOR: "1" },
-      stdio: ["pipe", "pipe", "pipe"]
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      windowsVerbatimArguments: spawnConfig.verbatimArguments
     });
     this.rpcStream = this.proc.stdin;
 

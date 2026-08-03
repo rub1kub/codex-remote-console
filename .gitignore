@@ -14,5 +14,7 @@ release/
 npm-debug.log*
 .codex-remote-console/
 .playwright-mcp/
+.claude/
+.codex/
 codex-remote-*.png
 output/

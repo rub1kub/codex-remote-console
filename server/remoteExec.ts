@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { access, readdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -322,16 +323,67 @@ function parseRemoteDirectoryListing(stdout: string): DirectoryListing {
   };
 }
 
+// Local project tooling is built on POSIX shell scripts, so on Windows the
+// commands must run through a bash port (Git Bash). WSL's System32 bash.exe is
+// excluded: it executes inside the WSL distro, not the Windows environment
+// where the project and Codex CLI live.
+let cachedWindowsBash: string | null | undefined;
+
+export function findWindowsBash(): string | null {
+  if (cachedWindowsBash !== undefined) return cachedWindowsBash;
+
+  const candidates = [
+    process.env.CODEX_REMOTE_BASH,
+    process.env.ProgramFiles &&
+      path.join(process.env.ProgramFiles, "Git", "bin", "bash.exe"),
+    process.env["ProgramFiles(x86)"] &&
+      path.join(process.env["ProgramFiles(x86)"], "Git", "bin", "bash.exe"),
+    process.env.LOCALAPPDATA &&
+      path.join(process.env.LOCALAPPDATA, "Programs", "Git", "bin", "bash.exe")
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      cachedWindowsBash = candidate;
+      return candidate;
+    }
+  }
+
+  const located = spawnSync("where.exe", ["bash.exe"], {
+    encoding: "utf8",
+    windowsHide: true
+  });
+  const found =
+    located.status === 0
+      ? located.stdout
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find((line) => line && !/\\system32\\/i.test(line))
+      : "";
+
+  cachedWindowsBash = found || null;
+  return cachedWindowsBash;
+}
+
+const windowsBashMissingMessage =
+  "Для локальных проектов на Windows нужен Git Bash. Установите Git для Windows (git-scm.com) и перезапустите приложение.";
+
 function runLocalCommand(profile: CodexProfile, command: string) {
-  const isWindows = process.platform === "win32";
-  const child = isWindows
-    ? spawn("cmd.exe", ["/d", "/s", "/c", command], {
-        cwd: expandLocalPath(profile.projectPath),
-        windowsHide: true
-      })
-    : spawn("bash", ["-lc", command], {
-        cwd: expandLocalPath(profile.projectPath)
-      });
+  if (process.platform === "win32") {
+    const bash = findWindowsBash();
+    if (!bash) {
+      return Promise.reject(new Error(windowsBashMissingMessage));
+    }
+    const child = spawn(bash, ["-lc", command], {
+      cwd: expandLocalPath(profile.projectPath),
+      windowsHide: true
+    });
+    return collectChild(child, command);
+  }
+
+  const child = spawn("bash", ["-lc", command], {
+    cwd: expandLocalPath(profile.projectPath)
+  });
 
   return collectChild(child, command);
 }

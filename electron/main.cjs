@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, nativeTheme, shell } = require("electron");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
@@ -17,6 +17,28 @@ function getWindowIconPath() {
   return app.isPackaged
     ? path.join(process.resourcesPath, "icon.png")
     : path.join(app.getAppPath(), "build", "icon.png");
+}
+
+const titleBarThemes = {
+  light: { background: "#f5f5f7", overlay: "#f5f5f7", symbol: "#1d1d1f" },
+  dark: { background: "#1c1c1e", overlay: "#1c1c1e", symbol: "#f5f5f7" }
+};
+
+function resolveTitleBarTheme(theme) {
+  if (theme === "light" || theme === "dark") return titleBarThemes[theme];
+  return nativeTheme.shouldUseDarkColors ? titleBarThemes.dark : titleBarThemes.light;
+}
+
+function applyWindowTheme(window, theme) {
+  const colors = resolveTitleBarTheme(theme);
+  window.setBackgroundColor(colors.background);
+  if (process.platform !== "darwin" && typeof window.setTitleBarOverlay === "function") {
+    window.setTitleBarOverlay({
+      color: colors.overlay,
+      symbolColor: colors.symbol,
+      height: 40
+    });
+  }
 }
 
 async function startBackend() {
@@ -119,6 +141,7 @@ function isTrustedRenderer(event) {
 
 async function createWindow(profileId = "") {
   const backend = await ensureBackend();
+  const initialTheme = resolveTitleBarTheme("system");
 
   const window = new BrowserWindow({
     width: 1180,
@@ -135,12 +158,12 @@ async function createWindow(profileId = "") {
       : {
           titleBarStyle: "hidden",
           titleBarOverlay: {
-            color: "#f0f2ef",
-            symbolColor: "#202422",
-            height: 36
+            color: initialTheme.overlay,
+            symbolColor: initialTheme.symbol,
+            height: 40
           }
         }),
-    backgroundColor: "#f0f2ef",
+    backgroundColor: initialTheme.background,
     autoHideMenuBar: process.platform !== "darwin",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -190,6 +213,17 @@ app.whenReady().then(async () => {
       throw new Error("Invalid project id.");
     }
     await createWindow(profileId);
+    return true;
+  });
+  ipcMain.handle("codex-remote:set-theme", (event, theme) => {
+    if (!isTrustedRenderer(event)) throw new Error("Untrusted renderer.");
+    if (theme !== "light" && theme !== "dark" && theme !== "system") {
+      throw new Error("Invalid theme.");
+    }
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window && !window.isDestroyed()) {
+      applyWindowTheme(window, theme);
+    }
     return true;
   });
   await createWindow();

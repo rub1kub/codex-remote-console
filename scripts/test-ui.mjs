@@ -50,7 +50,12 @@ try {
   await page.goto(baseUrl);
 
   assert(await page.locator(".chat-header .connection-chip").count() === 0, "header duplicates the project connection status");
-  assert(await page.locator(".sidebar-footer button").count() === 2, "sidebar footer is not reduced to tasks and settings");
+  assert(await page.locator(".sidebar-footer").count() === 0, "legacy sidebar footer is still rendered");
+  assert(await page.locator(".sidebar .sidebar-tasks-row").count() === 1, "tasks row is missing from the sidebar source list");
+  assert(
+    await page.locator('.chat-header .header-actions [title="Настройки"]').count() === 1,
+    "settings button is missing from the toolbar"
+  );
 
   await page.getByTitle("Команды").click();
   const commandModal = page.locator(".command-modal");
@@ -131,27 +136,53 @@ try {
   assert(composerBox && textareaBox, "composer geometry is unavailable");
   assert(textareaBox.y >= composerBox.y, "composer text starts above its container");
   assert(textareaBox.y + textareaBox.height <= composerBox.y + composerBox.height, "composer text overflows its container");
-  const sidebarFooterBox = await page.locator(".sidebar-footer").boundingBox();
-  const composerBarBox = await page.locator(".composer").boundingBox();
-  assert(sidebarFooterBox && composerBarBox, "bottom bar geometry is unavailable");
+  const sidebarBox = await page.locator(".sidebar").boundingBox();
+  assert(sidebarBox, "sidebar geometry is unavailable");
   assert(
-    Math.abs(sidebarFooterBox.y - composerBarBox.y) <= 1,
-    `sidebar footer and composer are vertically misaligned (${sidebarFooterBox.y} !== ${composerBarBox.y})`
+    sidebarBox.y <= 1 && sidebarBox.height >= 798,
+    `sidebar does not run the full window height (${sidebarBox.y} / ${sidebarBox.height})`
   );
 
   await page.locator(".project-list").evaluate((list) => {
-    const fixture = document.createElement("div");
-    fixture.className = "project-row active ui-project-fixture";
-    fixture.textContent = "Fixture";
-    list.append(fixture);
+    const createGroup = (server, project, active = false) => {
+      const group = document.createElement("section");
+      group.className = "project-group ui-project-group";
+      group.innerHTML = `
+        <div class="server-row"><span>${server}</span></div>
+        <div class="project-row ${active ? "active ui-project-fixture" : ""}">
+          <span class="project-icon">●</span>
+          <span class="project-copy">
+            <span class="project-name-line"><span class="project-name">${project}</span></span>
+            <small class="project-path">/workspace/${project}</small>
+          </span>
+        </div>
+      `;
+      return group;
+    };
+    list.append(createGroup("first-server", "first-project", true));
+    list.append(createGroup("second-server", "second-project"));
   });
+  const projectListBox = await page.locator(".project-list").boundingBox();
+  const projectGroups = page.locator(".ui-project-group");
+  const firstProjectGroupBox = await projectGroups.nth(0).boundingBox();
+  const secondProjectGroupBox = await projectGroups.nth(1).boundingBox();
+  const firstProjectRowBox = await projectGroups.nth(0).locator(".project-row").boundingBox();
+  assert(
+    projectListBox && firstProjectGroupBox && secondProjectGroupBox && firstProjectRowBox,
+    "project list geometry is unavailable"
+  );
+  assert(
+    secondProjectGroupBox.y >= firstProjectGroupBox.y + firstProjectGroupBox.height - 1,
+    "server groups are laid out horizontally in the narrow sidebar"
+  );
+  assert(firstProjectRowBox.width >= projectListBox.width - 4, "project row does not fill the sidebar width");
   const activeProjectStyle = await page.locator(".ui-project-fixture").evaluate((element) => {
     const style = getComputedStyle(element);
     return { borderColor: style.borderColor, boxShadow: style.boxShadow };
   });
   assert(activeProjectStyle.borderColor === "rgba(0, 0, 0, 0)", "active project still has a colored border");
   assert(activeProjectStyle.boxShadow === "none", "active project still has a purple inset outline");
-  await page.locator(".ui-project-fixture").evaluate((element) => element.remove());
+  await projectGroups.evaluateAll((groups) => groups.forEach((group) => group.remove()));
 
   await page.locator(".messages").evaluate((messages) => {
     const fixture = document.createElement("section");
