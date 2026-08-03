@@ -554,6 +554,7 @@ export async function startServer(
           target?: ReviewTarget;
           effort?: string | null;
           serviceTier?: string | null;
+          forceReload?: boolean;
         };
         messageType = message.type;
 
@@ -759,6 +760,16 @@ export async function startServer(
           } catch (error) {
             send(ws, {
               type: "accountRateLimits",
+              result: null,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        } else if (message.type === "listSkills") {
+          try {
+            send(ws, { type: "skills", result: await bridge.listSkills(Boolean(message.forceReload)) });
+          } catch (error) {
+            send(ws, {
+              type: "skills",
               result: null,
               error: error instanceof Error ? error.message : String(error)
             });

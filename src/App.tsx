@@ -91,6 +91,7 @@ import type {
   ReviewTarget,
   SecretStoreStatus,
   ServerMessage,
+  SkillMetadata,
   ThreadMetadata,
   ThreadItem,
   UserInput
@@ -180,7 +181,7 @@ type QueuedTask = {
 type ComposerAttachment = {
   id: string;
   name: string;
-  kind: "image" | "file" | "mention";
+  kind: "image" | "file" | "mention" | "skill";
   size?: number;
   url?: string;
   path?: string;
@@ -739,6 +740,9 @@ function attachmentToInput(attachment: ComposerAttachment): UserInput | null {
   if (attachment.kind === "mention" && attachment.path) {
     return { type: "mention", name: attachment.name, path: attachment.path };
   }
+  if (attachment.kind === "skill" && attachment.path) {
+    return { type: "skill", name: attachment.name, path: attachment.path };
+  }
   if (attachment.kind === "file" && attachment.text) {
     return {
       type: "text",
@@ -1133,6 +1137,9 @@ export default function App() {
   const [fileMentionQuery, setFileMentionQuery] = useState("");
   const [fileMentionResults, setFileMentionResults] = useState<FileSearchResult[]>([]);
   const [isFileMentionLoading, setFileMentionLoading] = useState(false);
+  const [skillMentionQuery, setSkillMentionQuery] = useState<string | null>(null);
+  const [skills, setSkills] = useState<SkillMetadata[] | null>(null);
+  const [skillsLoading, setSkillsLoading] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [showArchivedThreads, setShowArchivedThreads] = useState(false);
@@ -1551,6 +1558,24 @@ export default function App() {
   }, [connection, selectedProfileId, threads]);
 
   useEffect(() => {
+    const skillMatch = input.match(/(?:^|\s)@skill:([^\s@]{0,80})$/i);
+    if (skillMatch) {
+      setSkillMentionQuery(skillMatch[1] ?? "");
+      setFileMentionQuery("");
+      setFileMentionResults([]);
+      setFileMentionLoading(false);
+      if (fileMentionTimerRef.current) {
+        window.clearTimeout(fileMentionTimerRef.current);
+        fileMentionTimerRef.current = null;
+      }
+      if (!skills && !skillsLoading && connection === "connected") {
+        setSkillsLoading(true);
+        send({ type: "listSkills" });
+      }
+      return;
+    }
+    setSkillMentionQuery(null);
+
     const match = input.match(/(?:^|\s)@([^\s@]{1,80})$/);
     const query = match?.[1] ?? "";
     setFileMentionQuery(query);
@@ -1570,7 +1595,20 @@ export default function App() {
     fileMentionTimerRef.current = window.setTimeout(() => {
       void searchFilesForMention(query);
     }, 180);
-  }, [connection, input, selectedProfileId]);
+  }, [connection, input, selectedProfileId, skills, skillsLoading]);
+
+  const skillMentionResults = useMemo(() => {
+    if (skillMentionQuery === null || !skills) return [];
+    const query = skillMentionQuery.trim().toLowerCase();
+    if (!query) return skills.slice(0, 20);
+    return skills
+      .filter(
+        (skill) =>
+          skill.name.toLowerCase().includes(query) ||
+          (skill.shortDescription || skill.description || "").toLowerCase().includes(query)
+      )
+      .slice(0, 20);
+  }, [skillMentionQuery, skills]);
 
   useEffect(() => {
     const closeTransientMenus = () => {
@@ -2192,6 +2230,12 @@ export default function App() {
     setFileMentionQuery("");
   }
 
+  function applySkillMention(skill: SkillMetadata) {
+    setInput((current) => current.replace(/@skill:([^\s@]{0,80})$/i, ""));
+    addSkillAttachment(skill);
+    setSkillMentionQuery(null);
+  }
+
   async function openProjectDiff(files: FileSummary[] = []) {
     if (!selectedProfileIdRef.current) {
       setProfileOpen(true);
@@ -2355,6 +2399,19 @@ export default function App() {
         name: file.label || file.path.split("/").pop() || file.path,
         kind: "mention",
         path: file.path
+      }
+    ]);
+  }
+
+  function addSkillAttachment(skill: SkillMetadata) {
+    setAttachments((current) => [
+      ...current,
+      {
+        id: `skill-${Date.now()}-${skill.name}`,
+        name: skill.name,
+        kind: "skill",
+        path: skill.path,
+        text: skill.shortDescription || skill.description
       }
     ]);
   }
@@ -2638,6 +2695,19 @@ export default function App() {
 
     if (message.type === "accountRateLimits") {
       setAccountRateLimits(message.result);
+      return;
+    }
+
+    if (message.type === "skills") {
+      setSkillsLoading(false);
+      if (message.result) {
+        setSkills(message.result.data.flatMap((entry) => entry.skills));
+      } else {
+        setSkills([]);
+        if (message.error) {
+          addLog(`Список skills недоступен: ${friendlyErrorMessage(message.error)}`);
+        }
+      }
       return;
     }
 
@@ -3678,7 +3748,7 @@ export default function App() {
         openProjectCommands(codexCommand(argument ? `exec-server ${argument}` : "exec-server --help"));
         return true;
       case "skills":
-        submitTaskOrQueue("Покажи релевантные skills Codex для текущей задачи и как их лучше использовать.");
+        setInput((current) => (current ? `${current.trim()} @skill:` : "@skill:"));
         return true;
       case "cloud":
         openProjectCommands(codexCommand(argument ? `cloud ${argument}` : "cloud"));
@@ -3892,7 +3962,7 @@ export default function App() {
     ...(preferences.userMessageColor ? { "--user-message-bg": preferences.userMessageColor } : {})
   } as CSSProperties;
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.5.8";
+  const appVersion = "1.6.0";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -5012,6 +5082,28 @@ export default function App() {
               </div>
             )}
 
+            {skillMentionQuery !== null && (
+              <div className="composer-suggest mention-suggest skill-suggest">
+                {skillsLoading ? (
+                  <span className="suggest-loading"><Loader2 size={14} className="spin" /> Ищу skills</span>
+                ) : skillMentionResults.length === 0 ? (
+                  <span className="suggest-empty">Skills не найдены</span>
+                ) : (
+                  skillMentionResults.map((skill) => (
+                    <button key={skill.path} type="button" onClick={() => applySkillMention(skill)}>
+                      <Sparkles size={14} />
+                      <span>
+                        {skill.name}
+                        {(skill.shortDescription || skill.description) && (
+                          <small>{skill.shortDescription || skill.description}</small>
+                        )}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+
             {attachments.length > 0 && (
               <div className="attachment-strip">
                 {attachments.map((attachment) => (
@@ -5026,6 +5118,8 @@ export default function App() {
                       <img src={attachment.url} alt="" />
                     ) : attachment.kind === "mention" ? (
                       <FileText size={14} />
+                    ) : attachment.kind === "skill" ? (
+                      <Sparkles size={14} />
                     ) : (
                       <Paperclip size={14} />
                     )}

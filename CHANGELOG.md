@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.0 - 2026-08-04
+
+- Added a Skills picker: typing `@skill:` in the composer now searches Codex's real skill catalog (via the native `skills/list` app-server method) and lets you attach a skill to the turn, instead of only being able to ask the model in plain text what skills exist. The `/skills` slash command now opens this picker instead of sending a canned prompt.
+
 ## 1.5.8 - 2026-08-04
 
 - The collapsed "steps" toggle above the final answer now reads "Обработка заняла Xм Yс" (live-ticking "Обрабатываю… Xс" while the task is still running), matching ChatGPT's "Thought for..." pattern, for the most recently run turn. Older turns loaded from history still show "Ход работы" with a step count, since per-turn timing isn't carried through the message pipeline for reloaded threads.

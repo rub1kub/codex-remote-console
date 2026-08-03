@@ -273,6 +273,25 @@ export type AccountRateLimits = {
   rateLimitsByLimitId: Record<string, RateLimitEntry>;
 };
 
+export type SkillMetadata = {
+  name: string;
+  description: string;
+  enabled: boolean;
+  path: string;
+  scope: "user" | "repo" | "system" | "admin";
+  shortDescription?: string | null;
+};
+
+export type SkillsListEntry = {
+  cwd: string;
+  errors: { message: string; path: string }[];
+  skills: SkillMetadata[];
+};
+
+export type SkillsListResult = {
+  data: SkillsListEntry[];
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "tool" | "system";
@@ -294,4 +313,5 @@ export type ServerMessage =
   | { type: "models"; result: CodexModelList; error?: string }
   | { type: "error"; message: string }
   | { type: "interrupt"; result: unknown }
-  | { type: "accountRateLimits"; result: AccountRateLimits | null; error?: string };
+  | { type: "accountRateLimits"; result: AccountRateLimits | null; error?: string }
+  | { type: "skills"; result: SkillsListResult | null; error?: string };

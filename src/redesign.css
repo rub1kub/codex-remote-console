@@ -1496,6 +1496,27 @@ html.theme-snap *::after {
   animation: popoverIn 160ms var(--ease-out) both;
 }
 
+.command-studio .skill-suggest button span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+
+.command-studio .skill-suggest button span small {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-studio .suggest-empty {
+  padding: 8px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
 .command-studio .popover-section {
   padding: 5px;
 }

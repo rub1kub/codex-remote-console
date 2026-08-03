@@ -361,7 +361,7 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       clientInfo: {
         name: "codex_remote_console",
         title: "Codex Remote Console",
-        version: "1.5.8"
+        version: "1.6.0"
       },
       capabilities: {
         experimentalApi: true
@@ -593,6 +593,13 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
 
   async readAccountRateLimits() {
     return this.request("account/rateLimits/read", {});
+  }
+
+  async listSkills(forceReload = false) {
+    return this.request("skills/list", {
+      cwds: [this.profile.projectPath],
+      forceReload
+    });
   }
 
   respondRequest(id: number | string, result: unknown) {
