@@ -82,6 +82,8 @@ import type {
   CodexThread,
   DirectoryListing,
   FileSearchResult,
+  McpServerStatusEntry,
+  McpServerStatusResult,
   McpStatus,
   ProjectCommandResult,
   ProjectDiff,
@@ -504,6 +506,19 @@ function formatRateLimitWindow(minutes: number) {
   if (minutes >= 60 * 20) return "сутки";
   if (minutes >= 55) return "час";
   return `${minutes} мин`;
+}
+
+function mcpAuthLabel(status: McpServerStatusEntry["authStatus"]) {
+  switch (status) {
+    case "oAuth":
+      return "OAuth";
+    case "bearerToken":
+      return "Токен";
+    case "notLoggedIn":
+      return "Не авторизован";
+    default:
+      return "Без авторизации";
+  }
 }
 
 function formatBytes(value?: number) {
@@ -1128,6 +1143,8 @@ export default function App() {
     open: false,
     loading: false
   });
+  const [mcpServerStatus, setMcpServerStatus] = useState<McpServerStatusResult | null>(null);
+  const [mcpServerStatusLoading, setMcpServerStatusLoading] = useState(false);
   const [templatesPanel, setTemplatesPanel] = useState<TemplatesPanelState>({ open: false });
   const [timelinePanel, setTimelinePanel] = useState<TimelinePanelState>({ open: false });
   const [isTerminalOpen, setTerminalOpen] = useState(false);
@@ -2192,6 +2209,12 @@ export default function App() {
         error: mcpError instanceof Error ? mcpError.message : "Не удалось прочитать MCP."
       });
     }
+    if (connection === "connected") {
+      setMcpServerStatusLoading(true);
+      send({ type: "mcpServerStatus" });
+    } else {
+      setMcpServerStatus(null);
+    }
   }
 
   function openMcpPanel() {
@@ -2628,6 +2651,8 @@ export default function App() {
       if (message.status !== "connected") {
         setLoadingThreadId("");
         setAccountRateLimits(null);
+        setMcpServerStatus(null);
+        setSkills(null);
       }
       if (message.status === "connected") {
         manualDisconnectRef.current = false;
@@ -2708,6 +2733,12 @@ export default function App() {
           addLog(`Список skills недоступен: ${friendlyErrorMessage(message.error)}`);
         }
       }
+      return;
+    }
+
+    if (message.type === "mcpServerStatus") {
+      setMcpServerStatusLoading(false);
+      setMcpServerStatus(message.result);
       return;
     }
 
@@ -3962,7 +3993,7 @@ export default function App() {
     ...(preferences.userMessageColor ? { "--user-message-bg": preferences.userMessageColor } : {})
   } as CSSProperties;
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.6.0";
+  const appVersion = "1.7.0";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -6180,25 +6211,46 @@ export default function App() {
               </div>
             ) : (
               <div className="mcp-list">
-                {mcpPanel.result?.servers.length ? (
-                  mcpPanel.result.servers.map((server) => (
-                    <div key={server.name} className="mcp-row">
-                      <Server size={16} />
-                      <div>
-                        <strong>{server.name}</strong>
-                        <span>{server.status || server.raw}</span>
+                {(() => {
+                  const shellServers = mcpPanel.result?.servers ?? [];
+                  const names = new Set<string>(shellServers.map((server) => server.name));
+                  (mcpServerStatus?.data ?? []).forEach((entry) => names.add(entry.name));
+                  if (names.size === 0) {
+                    return <div className="folder-empty">MCP серверы не настроены.</div>;
+                  }
+                  return Array.from(names).map((name) => {
+                    const server = shellServers.find((item) => item.name === name);
+                    const detail = mcpServerStatus?.data.find((entry) => entry.name === name);
+                    return (
+                      <div key={name} className="mcp-row">
+                        <Server size={16} />
+                        <div>
+                          <strong>{name}</strong>
+                          {detail ? (
+                            <span>
+                              {mcpAuthLabel(detail.authStatus)}
+                              {" · "}
+                              {Object.keys(detail.tools).length} инструментов
+                              {detail.resources.length > 0 ? ` · ${detail.resources.length} ресурсов` : ""}
+                              {detail.serverInfo?.version ? ` · v${detail.serverInfo.version}` : ""}
+                            </span>
+                          ) : (
+                            <span>
+                              {server?.status || server?.raw || "Без статуса"}
+                              {mcpServerStatusLoading ? " · читаю статус…" : ""}
+                            </span>
+                          )}
+                        </div>
+                        <button type="button" onClick={() => openProjectCommands(codexCommand(`mcp login ${name}`))}>
+                          Войти
+                        </button>
+                        <button type="button" onClick={() => openProjectCommands(codexCommand(`mcp remove ${name}`))}>
+                          Удалить
+                        </button>
                       </div>
-                      <button type="button" onClick={() => openProjectCommands(codexCommand(`mcp login ${server.name}`))}>
-                        Войти
-                      </button>
-                      <button type="button" onClick={() => openProjectCommands(codexCommand(`mcp remove ${server.name}`))}>
-                        Удалить
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <div className="folder-empty">MCP серверы не настроены.</div>
-                )}
+                    );
+                  });
+                })()}
                 {mcpPanel.result?.raw && (
                   <details className="raw-details">
                     <summary>Вывод команды</summary>

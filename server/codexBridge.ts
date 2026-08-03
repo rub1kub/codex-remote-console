@@ -361,7 +361,7 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       clientInfo: {
         name: "codex_remote_console",
         title: "Codex Remote Console",
-        version: "1.6.0"
+        version: "1.7.0"
       },
       capabilities: {
         experimentalApi: true
@@ -600,6 +600,22 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       cwds: [this.profile.projectPath],
       forceReload
     });
+  }
+
+  async listMcpServerStatus() {
+    const data: unknown[] = [];
+    let cursor: string | null = null;
+
+    do {
+      const page = (await this.request("mcpServerStatus/list", {
+        cursor,
+        detail: "full"
+      })) as { data?: unknown[]; nextCursor?: string | null };
+      if (Array.isArray(page.data)) data.push(...page.data);
+      cursor = typeof page.nextCursor === "string" && page.nextCursor ? page.nextCursor : null;
+    } while (cursor);
+
+    return { data };
   }
 
   respondRequest(id: number | string, result: unknown) {

@@ -774,6 +774,16 @@ export async function startServer(
               error: error instanceof Error ? error.message : String(error)
             });
           }
+        } else if (message.type === "mcpServerStatus") {
+          try {
+            send(ws, { type: "mcpServerStatus", result: await bridge.listMcpServerStatus() });
+          } catch (error) {
+            send(ws, {
+              type: "mcpServerStatus",
+              result: null,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
         }
       } catch (error) {
         if (messageType === "connect") {

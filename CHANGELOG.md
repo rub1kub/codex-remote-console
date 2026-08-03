@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.0 - 2026-08-04
+
+- The MCP panel now also reads the real, structured MCP status (via the native `mcpServerStatus/list` app-server method) alongside the existing `codex mcp list` output: each server row shows its auth status, tool count, resource count, and version when available, and servers that only exist in this richer source (not covered by the shell command) now show up too — some connectors weren't visible in the panel at all before this.
+
 ## 1.6.0 - 2026-08-04
 
 - Added a Skills picker: typing `@skill:` in the composer now searches Codex's real skill catalog (via the native `skills/list` app-server method) and lets you attach a skill to the turn, instead of only being able to ask the model in plain text what skills exist. The `/skills` slash command now opens this picker instead of sending a canned prompt.

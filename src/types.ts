@@ -292,6 +292,40 @@ export type SkillsListResult = {
   data: SkillsListEntry[];
 };
 
+export type McpToolInfo = {
+  name: string;
+  description?: string | null;
+};
+
+export type McpResourceInfo = {
+  uri: string;
+  name?: string | null;
+};
+
+export type McpResourceTemplateInfo = {
+  uriTemplate: string;
+  name?: string | null;
+};
+
+export type McpServerStatusEntry = {
+  name: string;
+  authStatus: "unsupported" | "notLoggedIn" | "bearerToken" | "oAuth";
+  tools: Record<string, McpToolInfo>;
+  resources: McpResourceInfo[];
+  resourceTemplates: McpResourceTemplateInfo[];
+  serverInfo?: {
+    name: string;
+    version?: string;
+    title?: string;
+    description?: string;
+    websiteUrl?: string;
+  } | null;
+};
+
+export type McpServerStatusResult = {
+  data: McpServerStatusEntry[];
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "tool" | "system";
@@ -314,4 +348,5 @@ export type ServerMessage =
   | { type: "error"; message: string }
   | { type: "interrupt"; result: unknown }
   | { type: "accountRateLimits"; result: AccountRateLimits | null; error?: string }
-  | { type: "skills"; result: SkillsListResult | null; error?: string };
+  | { type: "skills"; result: SkillsListResult | null; error?: string }
+  | { type: "mcpServerStatus"; result: McpServerStatusResult | null; error?: string };
