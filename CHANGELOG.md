@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.0 - 2026-08-04
+
+- Reworked the Terminal drawer into a persistent live session instead of a one-shot command runner: it now stays open and running while you keep working elsewhere in the app, streams command output as it happens, and survives closing/reopening the drawer. Local sessions run through a plain shell (interrupt sends SIGINT to the whole process group); SSH sessions get a real remote PTY (via `ssh2`'s `shell()` for password auth, `ssh -tt` for key-based), so Ctrl+C behaves like a normal terminal there. A "Прервать" button stops the current command, "Завершить сессию" ends it, and a new session starts automatically the next time you open the drawer.
+
 ## 1.8.0 - 2026-08-04
 
 - Added content search across project files (grep from the app, without opening a terminal): the file browser's "Файлы проекта" panel now has a "Содержимое" tab that searches file contents (using `rg` if available, falling back to `grep`) and lists path:line matches with a text preview. Clicking a match opens the file with line numbers and scrolls to and highlights the matching line.

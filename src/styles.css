@@ -3344,6 +3344,13 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.terminal-head .terminal-head-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+
 .terminal-head strong {
   color: #2c2c2e;
   font-size: 14px;

@@ -215,6 +215,12 @@ type CommandRunnerState = {
   result?: ProjectCommandResult;
   error?: string;
 };
+type TerminalSessionState = {
+  id: string;
+  output: string;
+  running: boolean;
+  error?: string;
+};
 type FilePanelState = {
   open: boolean;
   loading: boolean;
@@ -532,6 +538,16 @@ function formatBytes(value?: number) {
   if (value < 1024) return `${value} Б`;
   if (value < 1024 * 1024) return `${Math.round(value / 1024)} КБ`;
   return `${(value / 1024 / 1024).toFixed(1)} МБ`;
+}
+
+// The remote terminal runs on a real PTY (colors, cursor movement), but the
+// output pane is plain text, not a terminal emulator — strip ANSI escapes
+// rather than show raw control sequences.
+function stripAnsi(text: string) {
+  return text
+    .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")
+    .replace(/\x1b\][^\x07]*\x07/g, "")
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
 }
 
 function pathBreadcrumbs(pathValue: string) {
@@ -1154,6 +1170,9 @@ export default function App() {
   const [templatesPanel, setTemplatesPanel] = useState<TemplatesPanelState>({ open: false });
   const [timelinePanel, setTimelinePanel] = useState<TimelinePanelState>({ open: false });
   const [isTerminalOpen, setTerminalOpen] = useState(false);
+  const [terminalSession, setTerminalSession] = useState<TerminalSessionState | null>(null);
+  const [terminalInput, setTerminalInput] = useState("");
+  const terminalOutputRef = useRef<HTMLPreElement | null>(null);
   const [secretStatus, setSecretStatus] = useState<SecretStoreStatus | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdatePanelState>({ loading: false });
   const [isJournalOpen, setJournalOpen] = useState(false);
@@ -1641,6 +1660,12 @@ export default function App() {
     const target = container.querySelector(`[data-line="${filePanel.pendingLine}"]`);
     target?.scrollIntoView({ block: "center" });
   }, [filePanel.pendingLine, filePanel.file, filePanel.loading]);
+
+  useEffect(() => {
+    if (!isTerminalOpen) return;
+    const container = terminalOutputRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
+  }, [terminalSession?.output, isTerminalOpen]);
 
   useEffect(() => {
     const closeTransientMenus = () => {
@@ -2410,6 +2435,39 @@ export default function App() {
     }
   }
 
+  function openTerminalDrawer() {
+    setTerminalOpen(true);
+    if (!terminalSession?.running && connectionRef.current === "connected") {
+      const sessionId = `term-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const previousOutput = terminalSession && !terminalSession.error ? `${terminalSession.output}\n` : "";
+      setTerminalSession({ id: sessionId, output: previousOutput, running: true });
+      send({ type: "terminalOpen", sessionId });
+    }
+  }
+
+  function sendTerminalInput() {
+    const clean = terminalInput;
+    if (!terminalSession || !terminalSession.running || !clean.trim()) return;
+    if (selectedProfile?.mode === "local") {
+      setTerminalSession((current) =>
+        current ? { ...current, output: `${current.output}$ ${clean}\n` } : current
+      );
+    }
+    send({ type: "terminalWrite", sessionId: terminalSession.id, data: `${clean}\n` });
+    setTerminalInput("");
+  }
+
+  function stopTerminalSession() {
+    if (!terminalSession) return;
+    send({ type: "terminalInterrupt", sessionId: terminalSession.id });
+  }
+
+  function closeTerminalSessionClient() {
+    if (!terminalSession) return;
+    send({ type: "terminalClose", sessionId: terminalSession.id });
+    setTerminalSession(null);
+  }
+
   async function buildAttachmentFromFile(file: File): Promise<ComposerAttachment> {
     const id = `att-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const fileWithPath = file as File & { path?: string };
@@ -2700,6 +2758,7 @@ export default function App() {
         setAccountRateLimits(null);
         setMcpServerStatus(null);
         setSkills(null);
+        setTerminalSession(null);
       }
       if (message.status === "connected") {
         manualDisconnectRef.current = false;
@@ -2786,6 +2845,31 @@ export default function App() {
     if (message.type === "mcpServerStatus") {
       setMcpServerStatusLoading(false);
       setMcpServerStatus(message.result);
+      return;
+    }
+
+    if (message.type === "terminalOutput") {
+      setTerminalSession((current) => {
+        if (!current || current.id !== message.sessionId) return current;
+        const next = current.output + stripAnsi(message.data);
+        return { ...current, output: next.length > 200_000 ? next.slice(-200_000) : next };
+      });
+      return;
+    }
+
+    if (message.type === "terminalExit") {
+      setTerminalSession((current) => {
+        if (!current || current.id !== message.sessionId) return current;
+        return { ...current, running: false, output: `${current.output}\n[процесс завершен, код ${message.code ?? "?"}]\n` };
+      });
+      return;
+    }
+
+    if (message.type === "terminalError") {
+      setTerminalSession((current) => {
+        if (!current || current.id !== message.sessionId) return current;
+        return { ...current, running: false, error: message.message };
+      });
       return;
     }
 
@@ -3744,7 +3828,7 @@ export default function App() {
         openProjectCommands(argument);
         return true;
       case "terminal":
-        setTerminalOpen(true);
+        openTerminalDrawer();
         return true;
       case "timeline":
       case "work":
@@ -4040,7 +4124,7 @@ export default function App() {
     ...(preferences.userMessageColor ? { "--user-message-bg": preferences.userMessageColor } : {})
   } as CSSProperties;
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.8.0";
+  const appVersion = "1.9.0";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -4266,10 +4350,10 @@ export default function App() {
       {
         id: "terminal-drawer",
         label: "Терминал",
-        detail: "скрытая панель команд и вывода",
+        detail: "постоянная сессия с живым выводом",
         icon: <Terminal size={15} />,
         disabled: !selectedProfileId,
-        run: () => setTerminalOpen(true)
+        run: () => openTerminalDrawer()
       },
       {
         id: "app-update",
@@ -6477,44 +6561,73 @@ export default function App() {
             <div className="terminal-head">
               <div>
                 <strong>Терминал</strong>
-                <span>{selectedProfile?.projectPath || "Проект не выбран"}</span>
+                <span>
+                  {selectedProfile?.projectPath || "Проект не выбран"}
+                  {terminalSession ? (terminalSession.running ? " · активна" : " · остановлена") : ""}
+                </span>
               </div>
-              <button type="button" className="icon-button" onClick={() => setTerminalOpen(false)}>
-                <X size={16} />
-              </button>
+              <div className="terminal-head-actions">
+                {terminalSession?.running ? (
+                  <>
+                    <button type="button" className="icon-button" onClick={stopTerminalSession} title="Прервать (Ctrl+C)">
+                      <Square size={15} />
+                    </button>
+                    <button type="button" className="icon-button" onClick={closeTerminalSessionClient} title="Завершить сессию">
+                      <Power size={15} />
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={openTerminalDrawer}
+                    disabled={connection !== "connected"}
+                    title="Новая сессия"
+                  >
+                    <RefreshCw size={15} />
+                  </button>
+                )}
+                <button type="button" className="icon-button" onClick={() => setTerminalOpen(false)}>
+                  <X size={16} />
+                </button>
+              </div>
             </div>
             <div className="quick-command-list">
               {quickCommands.map((command) => (
-                <button key={command} type="button" onClick={() => void runProjectCommand(command)}>
+                <button key={command} type="button" onClick={() => setTerminalInput(command)}>
                   <Terminal size={14} />
                   {command}
                 </button>
               ))}
             </div>
+            {terminalSession?.error && <div className="folder-error">{terminalSession.error}</div>}
+            <pre className="terminal-output" ref={terminalOutputRef}>
+              {terminalSession?.output ||
+                (connection === "connected" ? "Открываю сессию…" : "Сначала подключитесь к проекту.")}
+            </pre>
             <form
               className="terminal-command-row"
               onSubmit={(event) => {
                 event.preventDefault();
-                void runProjectCommand();
+                sendTerminalInput();
               }}
             >
               <input
-                value={commandRunner.command}
-                onChange={(event) => setCommandRunner((current) => ({ ...current, command: event.target.value }))}
-                placeholder="git status --short"
+                value={terminalInput}
+                onChange={(event) => setTerminalInput(event.target.value)}
+                placeholder={terminalSession?.running ? "Команда и Enter" : "Сессия остановлена"}
                 autoComplete="off"
+                disabled={!terminalSession?.running}
               />
-              <button type="submit" className="primary-button" disabled={commandRunner.running || !selectedProfileId}>
-                {commandRunner.running ? <Loader2 size={15} className="spin" /> : <Terminal size={15} />}
-                Run
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={!terminalSession?.running || !terminalInput.trim()}
+              >
+                <Terminal size={15} />
+                Отправить
               </button>
             </form>
-            {commandRunner.error && <div className="folder-error">{commandRunner.error}</div>}
-            <pre className="terminal-output">
-              {commandRunner.result
-                ? [commandRunner.result.command, commandRunner.result.stdout, commandRunner.result.stderr].filter(Boolean).join("\n\n")
-                : logs.slice(0, 18).join("\n") || "Вывод появится после запуска команды."}
-            </pre>
           </aside>
         </div>
       )}

@@ -32,17 +32,21 @@ import {
 } from "./profiles";
 import {
   checkCodexCli,
+  closeTerminalSession,
   inspectMcpServers,
   inspectProjectHealth,
+  interruptTerminalSession,
   listProjectFiles,
   listDirectories,
+  openTerminalSession,
   preflightCodexCli,
   readProjectFile,
   readProjectDiff,
   runProjectQuickCommand,
   searchProjectFiles,
   searchProjectFileContents,
-  updateCodexCli
+  updateCodexCli,
+  writeTerminalSession
 } from "./remoteExec";
 import {
   deleteProfileSecret,
@@ -51,7 +55,7 @@ import {
   saveProfileSecret
 } from "./secrets";
 import type { AppUpdateStatus } from "./types";
-import type { ReviewTarget, UserInput } from "./types";
+import type { CodexProfile, ConnectionSecrets, ReviewTarget, UserInput } from "./types";
 
 type StartServerOptions = {
   host?: string;
@@ -511,6 +515,9 @@ export async function startServer(
 
   wss.on("connection", (ws) => {
     let bridge: CodexBridge | undefined;
+    let connectedProfile: CodexProfile | undefined;
+    let connectedSecrets: ConnectionSecrets | undefined;
+    const terminalSessionIds = new Set<string>();
 
     const wireBridge = (nextBridge: CodexBridge) => {
       nextBridge.on("notification", (message) => {
@@ -532,6 +539,10 @@ export async function startServer(
     const closeBridge = () => {
       bridge?.dispose();
       bridge = undefined;
+      connectedProfile = undefined;
+      connectedSecrets = undefined;
+      terminalSessionIds.forEach((sessionId) => closeTerminalSession(sessionId));
+      terminalSessionIds.clear();
     };
 
     const publishModels = async (currentBridge: CodexBridge) => {
@@ -566,6 +577,8 @@ export async function startServer(
           effort?: string | null;
           serviceTier?: string | null;
           forceReload?: boolean;
+          sessionId?: string;
+          data?: string;
         };
         messageType = message.type;
 
@@ -597,6 +610,8 @@ export async function startServer(
           bridge = new CodexBridge(profile, secrets);
           wireBridge(bridge);
           await bridge.start();
+          connectedProfile = profile;
+          connectedSecrets = secrets;
           send(ws, { type: "connection", status: "connected", profile });
           await publishModels(bridge);
           send(ws, {
@@ -795,6 +810,32 @@ export async function startServer(
               error: error instanceof Error ? error.message : String(error)
             });
           }
+        } else if (message.type === "terminalOpen") {
+          if (!message.sessionId) throw new Error("sessionId is required.");
+          if (!connectedProfile || !connectedSecrets) throw new Error("Connect to a profile first.");
+          const sessionId = message.sessionId;
+          terminalSessionIds.add(sessionId);
+          openTerminalSession(sessionId, connectedProfile, connectedSecrets, {
+            onData: (data) => send(ws, { type: "terminalOutput", sessionId, data }),
+            onExit: (code) => {
+              terminalSessionIds.delete(sessionId);
+              send(ws, { type: "terminalExit", sessionId, code });
+            },
+            onError: (errorMessage) => {
+              terminalSessionIds.delete(sessionId);
+              send(ws, { type: "terminalError", sessionId, message: errorMessage });
+            }
+          });
+        } else if (message.type === "terminalWrite") {
+          if (!message.sessionId) throw new Error("sessionId is required.");
+          writeTerminalSession(message.sessionId, message.data ?? "");
+        } else if (message.type === "terminalInterrupt") {
+          if (!message.sessionId) throw new Error("sessionId is required.");
+          interruptTerminalSession(message.sessionId);
+        } else if (message.type === "terminalClose") {
+          if (!message.sessionId) throw new Error("sessionId is required.");
+          terminalSessionIds.delete(message.sessionId);
+          closeTerminalSession(message.sessionId);
         }
       } catch (error) {
         if (messageType === "connect") {

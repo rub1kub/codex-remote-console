@@ -1016,3 +1016,201 @@ export async function updateCodexCli(
     updateStderr: result.stderr
   };
 }
+
+// Persistent terminal sessions: unlike runProfileCommand (spawn-and-collect,
+// bounded by COMMAND_TIMEOUT_MS), these stay alive across many writes and
+// stream output incrementally via callbacks instead of buffering it.
+// Local sessions are plain piped bash (no real PTY, so Ctrl+C is delivered by
+// signalling the process group, not by forwarding a raw control byte).
+// SSH sessions always get a real remote PTY (ssh2 shell() or `ssh -tt`), so a
+// raw \x03 byte works there exactly like a normal terminal.
+type TerminalSessionHandle = {
+  write(data: string): void;
+  interrupt(): void;
+  close(): void;
+};
+
+type TerminalSessionCallbacks = {
+  onData(chunk: string): void;
+  onExit(code: number | null): void;
+  onError(message: string): void;
+};
+
+const activeTerminalSessions = new Map<string, TerminalSessionHandle>();
+
+function registerTerminalSession(sessionId: string, handle: TerminalSessionHandle) {
+  activeTerminalSessions.get(sessionId)?.close();
+  activeTerminalSessions.set(sessionId, handle);
+}
+
+function openLocalTerminalSession(
+  sessionId: string,
+  profile: CodexProfile,
+  callbacks: TerminalSessionCallbacks
+) {
+  const isWindows = process.platform === "win32";
+  const bash = isWindows ? findWindowsBash() : "bash";
+  if (!bash) {
+    callbacks.onError(windowsBashMissingMessage);
+    return;
+  }
+
+  const child = spawn(bash, [], {
+    cwd: expandLocalPath(profile.projectPath),
+    windowsHide: true,
+    detached: !isWindows,
+    env: { ...process.env, TERM: "xterm-256color" }
+  });
+
+  child.stdout?.on("data", (chunk: Buffer) => callbacks.onData(chunk.toString("utf8")));
+  child.stderr?.on("data", (chunk: Buffer) => callbacks.onData(chunk.toString("utf8")));
+  child.on("error", (error) => callbacks.onError(error.message));
+  child.on("close", (code) => {
+    activeTerminalSessions.delete(sessionId);
+    callbacks.onExit(code);
+  });
+
+  registerTerminalSession(sessionId, {
+    write: (data) => {
+      child.stdin?.write(data);
+    },
+    interrupt: () => {
+      if (isWindows || !child.pid) {
+        child.kill("SIGINT");
+        return;
+      }
+      try {
+        process.kill(-child.pid, "SIGINT");
+      } catch {
+        child.kill("SIGINT");
+      }
+    },
+    close: () => {
+      if (!isWindows && child.pid) {
+        try {
+          process.kill(-child.pid, "SIGKILL");
+          return;
+        } catch {
+          // fall through to plain kill
+        }
+      }
+      child.kill("SIGKILL");
+    }
+  });
+}
+
+function openSsh2TerminalSession(
+  sessionId: string,
+  profile: CodexProfile,
+  secrets: ConnectionSecrets,
+  callbacks: TerminalSessionCallbacks
+) {
+  const { host, username, port } = parseSshTarget(profile.sshTarget, profile.port);
+  const client = new Client();
+  const cdCommand = `cd ${shellQuotePath(profile.projectPath)}\n`;
+
+  client
+    .on("ready", () => {
+      client.shell({ term: "xterm-256color" }, (error, stream) => {
+        if (error) {
+          callbacks.onError(error.message);
+          client.end();
+          return;
+        }
+        stream.write(cdCommand);
+        stream.on("data", (chunk: Buffer) => callbacks.onData(chunk.toString("utf8")));
+        stream.stderr.on("data", (chunk: Buffer) => callbacks.onData(chunk.toString("utf8")));
+        stream.on("close", (code: number | null) => {
+          activeTerminalSessions.delete(sessionId);
+          client.end();
+          callbacks.onExit(code);
+        });
+        registerTerminalSession(sessionId, {
+          write: (data) => stream.write(data),
+          interrupt: () => stream.write("\x03"),
+          close: () => {
+            stream.close();
+            client.end();
+          }
+        });
+      });
+    })
+    .on("error", (error) => callbacks.onError(error.message))
+    .connect({
+      host,
+      port,
+      username,
+      password: secrets.password,
+      readyTimeout: 20_000,
+      keepaliveInterval: 30_000,
+      keepaliveCountMax: 3
+    });
+}
+
+function openSystemSshTerminalSession(
+  sessionId: string,
+  profile: CodexProfile,
+  callbacks: TerminalSessionCallbacks
+) {
+  const args = ["-tt", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3"];
+  if (profile.port) args.push("-p", String(profile.port));
+  if (profile.identityFile) args.push("-i", expandLocalPath(profile.identityFile));
+  args.push(profile.sshTarget);
+
+  const child = spawn("ssh", args, {
+    cwd: process.cwd(),
+    env: { ...process.env, TERM: "xterm-256color" }
+  });
+  const cdCommand = `cd ${shellQuotePath(profile.projectPath)}\n`;
+  child.stdin?.write(cdCommand);
+
+  child.stdout?.on("data", (chunk: Buffer) => callbacks.onData(chunk.toString("utf8")));
+  child.stderr?.on("data", (chunk: Buffer) => callbacks.onData(chunk.toString("utf8")));
+  child.on("error", (error) => callbacks.onError(error.message));
+  child.on("close", (code) => {
+    activeTerminalSessions.delete(sessionId);
+    callbacks.onExit(code);
+  });
+
+  registerTerminalSession(sessionId, {
+    write: (data) => {
+      child.stdin?.write(data);
+    },
+    interrupt: () => {
+      child.stdin?.write("\x03");
+    },
+    close: () => {
+      child.kill("SIGKILL");
+    }
+  });
+}
+
+export function openTerminalSession(
+  sessionId: string,
+  profile: CodexProfile,
+  secrets: ConnectionSecrets,
+  callbacks: TerminalSessionCallbacks
+) {
+  if (profile.mode === "local") {
+    openLocalTerminalSession(sessionId, profile, callbacks);
+    return;
+  }
+  if (secrets.password) {
+    openSsh2TerminalSession(sessionId, profile, secrets, callbacks);
+    return;
+  }
+  openSystemSshTerminalSession(sessionId, profile, callbacks);
+}
+
+export function writeTerminalSession(sessionId: string, data: string) {
+  activeTerminalSessions.get(sessionId)?.write(data);
+}
+
+export function interruptTerminalSession(sessionId: string) {
+  activeTerminalSessions.get(sessionId)?.interrupt();
+}
+
+export function closeTerminalSession(sessionId: string) {
+  activeTerminalSessions.get(sessionId)?.close();
+  activeTerminalSessions.delete(sessionId);
+}

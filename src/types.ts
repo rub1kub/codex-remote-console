@@ -355,4 +355,7 @@ export type ServerMessage =
   | { type: "interrupt"; result: unknown }
   | { type: "accountRateLimits"; result: AccountRateLimits | null; error?: string }
   | { type: "skills"; result: SkillsListResult | null; error?: string }
-  | { type: "mcpServerStatus"; result: McpServerStatusResult | null; error?: string };
+  | { type: "mcpServerStatus"; result: McpServerStatusResult | null; error?: string }
+  | { type: "terminalOutput"; sessionId: string; data: string }
+  | { type: "terminalExit"; sessionId: string; code: number | null }
+  | { type: "terminalError"; sessionId: string; message: string };

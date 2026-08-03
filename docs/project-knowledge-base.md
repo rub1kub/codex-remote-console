@@ -1037,23 +1037,40 @@ Agent prompts:
 
 ### Gap-анализ от 2026-08-04: что из app-server ещё не native
 
-`account/rateLimits/read` был реализован нативно в 1.5.6 (см. §8). Остальные
-проверенные по `docs/codex-cli-knowledge-base.md` §9 (~90 методов) и по
-фактическому списку вызовов в `codexBridge.ts` кандидаты, отранжированные по
-ценности для remote-dev-over-SSH сценария:
+`account/rateLimits/read` был реализован нативно в 1.5.6 (см. §8). Пункты 1–3
+из исходного анализа закрыты в 1.6.0–1.9.0 (см. записи ниже и CHANGELOG.md);
+пункт 4 остаётся открытым низкоприоритетным gap.
 
-1. **Background terminals / persistent process control**
-   (`process/spawn`+`writeStdin`+`resizePty`+`process/outputDelta`, либо
-   `thread/backgroundTerminals/*`). Сейчас Terminal drawer — одноразовый
-   `/api/project/command` (`server/index.ts` route, `runProjectQuickCommand` в
-   `remoteExec.ts`, UI ~App.tsx). Нет способа стартовать dev-сервер и стримить
-   его вывод, не блокируя запрос.
-2. **`skills/list`** — native `skill` mention в `UserInput` уже существует
-   (см. §16), но нет picker'а: `/skills` просто шлет текстовый промпт.
-3. **`mcpServerStatus/list`** — заменил бы текстовый шим `codex mcp list`
-   (`/api/codex/mcp`) на структурированный статус серверов/tools.
+1. ~~Background terminals / persistent process control~~ — закрыто в 1.9.0.
+   `server/remoteExec.ts` теперь экспортирует `openTerminalSession` +
+   `writeTerminalSession`/`interruptTerminalSession`/`closeTerminalSession`:
+   локально это обычный `spawn("bash")` без PTY (нет `node-pty` — сознательно,
+   чтобы не тащить нативную пересборку в 6 build-таргетов electron-builder;
+   "Прервать" на локальной сессии шлёт `SIGINT` всей process group, а не
+   control-byte); по SSH — либо `ssh2` `Client.shell({term:...})` (пароль),
+   либо `ssh -tt` (ключ), в обоих случаях реальный remote PTY, поэтому Ctrl+C
+   там — обычный `\x03` байт. WS-протокол: `terminalOpen/Write/Interrupt/Close`
+   → `terminalOutput/Exit/Error` (`server/index.ts`, `src/types.ts`). Один
+   session на подключённый профиль, живёт до явного закрытия/дисконнекта, не
+   привязан к открытию/закрытию самого Terminal drawer. Вывод стримится через
+   plain `<pre>`, не полноценный terminal emulator — ANSI escape-последовательности
+   вырезаются клиентом (`stripAnsi` в `src/App.tsx`), цвета/курсорные
+   перемещения не рендерятся.
+2. ~~`skills/list`~~ — закрыто в 1.6.0. `@skill:` в композере ищет по
+   `CodexBridge.listSkills()`, вставляет `ComposerAttachment{kind:"skill"}` →
+   `UserInput{type:"skill"}`.
+3. ~~`mcpServerStatus/list`~~ — закрыто в 1.7.0. Дополняет (не заменяет)
+   текстовый шим `codex mcp list`: панель MCP мёржит оба источника по имени
+   сервера, показывает auth-статус/кол-во tools и resources/версию из RPC там,
+   где есть match, и подтягивает серверы, которых нет в текстовом выводе
+   (пример: `codex_apps` plugin-runtime коннектор).
 4. **`thread/name/set` / `thread/goal/*`** — низкий приоритет, пересекается с
-   локальными thread-metadata title/pin (§11), ценность ниже пп. 1–3.
+   локальными thread-metadata title/pin (§11), остаётся открытым.
+
+Также в 1.8.0 добавлен поиск по содержимому файлов (`searchProjectFileContents`
+в `remoteExec.ts`, `rg`/`grep` fallback внутри `projectConfinementPrelude`) —
+не был в исходном списке app-server методов (это shell-based feature, не RPC),
+но закрывает тот же "не могу без терминала" класс задач.
 
 `/doctor /mcp /plugins /login /logout /app-server /remote-control /sandbox
 /completion /cloud /apply /exec-server /features` (список выше) — намеренно
