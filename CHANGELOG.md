@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.8 - 2026-08-04
+
+- The collapsed "steps" toggle above the final answer now reads "Обработка заняла Xм Yс" (live-ticking "Обрабатываю… Xс" while the task is still running), matching ChatGPT's "Thought for..." pattern, for the most recently run turn. Older turns loaded from history still show "Ход работы" with a step count, since per-turn timing isn't carried through the message pipeline for reloaded threads.
+
 ## 1.5.7 - 2026-08-04
 
 - Added markdown rendering for chat messages: `#`-`######` headings, `-`/`*` and `1.` lists, `> ` blockquotes, and `**bold**`/`*italic*`/`_italic_` now render as real elements instead of showing the raw markdown characters (e.g. a literal `## Текущее состояние` line). Extends the existing safe renderer — every branch still returns React elements, never raw HTML, so this stays a read-only formatting layer, not a new injection surface.

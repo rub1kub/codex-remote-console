@@ -2,7 +2,7 @@
 
 Дата актуализации: 2026-08-04
 
-Версия приложения на момент среза: `1.5.7`
+Версия приложения на момент среза: `1.5.8`
 
 Ветка: `main`. Документ описывает текущее source tree; точную ревизию и наличие
 локальных правок перед любыми Git-операциями нужно проверять через `git status`
@@ -865,9 +865,24 @@ Raw items преобразуются в:
 - file change summaries;
 - final assistant response.
 
-Промежуточные assistant/tool items собираются в `Ход работы`. Итог, файлы и
-task summary визуально продолжают тот же turn. Не следует определять финальность
-только по позиции сообщения: источник завершения — terminal turn event.
+Промежуточные assistant/tool items собираются в collapsed steps-toggle. Итог,
+файлы и task summary визуально продолжают тот же turn. Не следует определять
+финальность только по позиции сообщения: источник завершения — terminal turn
+event.
+
+С 1.5.8 label этого toggle условный: для последней steps-группы последнего
+turn в `turnDisplay` (`isLatestStepsGroup` в App.tsx, около рендера
+`turnDisplay.map`) показывается «Обрабатываю… Xс» (пока `isBusy`, live через
+`taskElapsedMs`) или «Обработка заняла Xм Yс» (из `lastTaskSummary.elapsedMs`
+сразу после завершения) — в духе ChatGPT "Thought for...". Для всех остальных
+(исторических) steps-групп остаётся «Ход работы» + счётчик шагов, потому что
+`ChatMessage` не несёт timestamp, а turn-level `startedAt`/`completedAt` из
+`Turn` (см. §7 `src/types.ts`) не прокидывается через `buildMessageDisplay` в
+плоский `messages`. Не показывать выдуманное время для исторических turns —
+только для того, для которого реально есть live/только что завершённые
+данные. Полная поддержка per-turn времени для всей истории потребует
+прокидывать `startedAt`/`completedAt` через весь message pipeline — отдельная
+задача, не «заодно».
 
 ### Task lifecycle
 

@@ -482,6 +482,15 @@ function formatDuration(ms: number) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+// Compact "3м 2с" / "8с" wording for the ChatGPT-style "processing took..."
+// label above the answer — distinct from formatDuration's colon timer.
+function formatProcessingDuration(ms: number) {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes === 0 ? `${seconds}с` : `${minutes}м ${seconds}с`;
+}
+
 function formatTokens(stats: TaskTokenStats | null) {
   if (!stats) return "токены: --";
   const total = stats.total ?? ((stats.input ?? 0) + (stats.output ?? 0));
@@ -3883,7 +3892,7 @@ export default function App() {
     ...(preferences.userMessageColor ? { "--user-message-bg": preferences.userMessageColor } : {})
   } as CSSProperties;
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.5.7";
+  const appVersion = "1.5.8";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -4714,7 +4723,7 @@ export default function App() {
             </div>
           ) : (
             <>
-              {turnDisplay.map((turn) => (
+              {turnDisplay.map((turn, turnIndex) => (
                 <section key={turn.id} className="turn-group">
                   {turn.user && (
                     <article className="message user">
@@ -4728,9 +4737,23 @@ export default function App() {
                     </article>
                   )}
 
-                  {turn.items.map((item) => {
+                  {turn.items.map((item, itemIndex) => {
                     if (item.type === "steps") {
                       const isOpen = Boolean(openStepGroups[item.id]);
+                      // Only the trailing steps group of the most recent turn
+                      // can show a real elapsed time (live timer or the just
+                      // -completed task summary); older turns never carried
+                      // per-turn timing through the message pipeline, so they
+                      // keep the step-count label rather than fabricate one.
+                      const isLatestStepsGroup =
+                        turnIndex === turnDisplay.length - 1 && itemIndex === turn.items.length - 1;
+                      const processingLabel = isLatestStepsGroup
+                        ? isBusy
+                          ? `Обрабатываю… ${formatProcessingDuration(taskElapsedMs)}`
+                          : lastTaskSummary
+                            ? `Обработка заняла ${formatProcessingDuration(lastTaskSummary.elapsedMs)}`
+                            : null
+                        : null;
                       return (
                         <article key={item.id} className={`message assistant steps-message ${isOpen ? "open" : ""}`}>
                           <div className="message-avatar">C</div>
@@ -4746,8 +4769,14 @@ export default function App() {
                               }
                             >
                               {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                              <span>Ход работы</span>
-                              <small>{item.messages.length}</small>
+                              {processingLabel ? (
+                                <span>{processingLabel}</span>
+                              ) : (
+                                <>
+                                  <span>Ход работы</span>
+                                  <small>{item.messages.length}</small>
+                                </>
+                              )}
                             </button>
                             {isOpen && (
                               <div className="steps-list">
