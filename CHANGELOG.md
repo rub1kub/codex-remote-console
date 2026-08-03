@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.4 - 2026-08-03
+
+- Fixed the 1.5.3 history regression on Codex servers where `thread/turns/list` is available but `thread/items/list` still returns `is not supported yet`: chat history now opens from one bounded page of the 20 newest compact summary turns, so it neither calls the unsupported endpoint nor waits for the entire archive before rendering.
+- Extended the compatibility fallback to recognize the exact `not supported yet` response used by older app-server builds.
+- Added a full-history fallback for app-server builds that return an empty summary page or only non-displayable summary items; the bridge retries the previously compatible `thread/read includeTurns: true` path with a dedicated 180-second timeout instead of treating an empty-looking response as loaded history.
+- Empty server-side threads now show an explicit “history is empty” state after opening instead of the generic prompt to open a chat.
+
 ## 1.5.3 - 2026-08-03
 
 - Fixed large remote chats failing to open after 45 seconds: history now loads through bounded `thread/turns/list` and `thread/items/list` pages; older Codex versions fall back to the monolithic read with a dedicated 180-second timeout.

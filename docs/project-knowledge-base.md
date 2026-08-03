@@ -2,7 +2,7 @@
 
 Дата актуализации: 2026-08-03
 
-Версия приложения на момент среза: `1.5.3`
+Версия приложения на момент среза: `1.5.4`
 
 Ветка: `main`. Документ описывает текущее source tree; точную ревизию и наличие
 локальных правок перед любыми Git-операциями нужно проверять через `git status`
@@ -83,7 +83,7 @@ flowchart LR
 - На момент среза репозиторий публичный.
 - `private: true` в `package.json` запрещает случайную публикацию пакета в npm,
   но не управляет видимостью GitHub-репозитория.
-- Последний опубликованный стабильный релиз перед этим срезом — `v1.5.2`;
+- Последний опубликованный стабильный релиз перед этим срезом — `v1.5.3`;
   состояние ветки и тегов всегда проверяется непосредственно через Git.
 - В tracked tree нет GitHub Actions и нет файла `LICENSE`.
 - Отсутствие LICENSE означает, что публичный просмотр кода сам по себе не задает
@@ -391,11 +391,21 @@ ssh -T [options] target "bash -lc '<preflight && cd project && codex app-server 
 
 - `thread/list` фильтруется по `cwd` проекта.
 - Источники: `cli`, `appServer`, `vscode`, `exec`.
-- `thread/read includeTurns: false` читает метаданные, затем история собирается
-  постранично через `thread/turns/list` и `thread/items/list` в хронологическом
-  порядке; старые версии app-server используют fallback
+- `thread/read includeTurns: false` читает метаданные, затем turn с компактным
+  `itemsView: summary` читаются одной ограниченной страницей через
+  `thread/turns/list`: 20 последних turn запрашиваются в `desc`, затем
+  разворачиваются для показа по хронологии. UI не ждёт обхода всего архива;
+  `thread/items/list` намеренно не используется, потому что промежуточные версии
+  app-server отвечают `is not supported yet`.
+  Старые версии app-server используют fallback
   `thread/read includeTurns: true`.
-- Чтение истории не прикрепляет runtime turn state.
+- Если summary page не содержит turns либо её turns не содержат ни одного
+  отображаемого item (`userMessage`, `agentMessage`, `plan`,
+  `commandExecution`, `fileChange`), bridge не считает это успешной загрузкой и
+  повторяет совместимый `thread/read includeTurns: true` с увеличенным timeout.
+  Этот fallback восстанавливает полную историю, но не заменяет обязательный
+  `thread/resume` перед следующим `turn/start`.
+- Обычное чтение summary-истории не прикрепляет runtime turn state.
 - Поэтому перед отправкой в старый thread обязательно выполняется
   `thread/resume`.
 - Если thread отсутствует, `thread/start` создает новый.
@@ -1081,7 +1091,7 @@ colors прокидываются из preferences.
 | `npm run test:task-protocol` | Turn identity и completion decisions |
 | `npm run test:model-catalog` | Models/reasoning/service tiers |
 | `npm run test:message-history` | Удаление дублей user messages |
-| `npm run test:codex-history` | Пагинация turns/items и legacy fallback истории |
+| `npm run test:codex-history` | Summary turn pages, запрет items/list и legacy fallback |
 
 ### Local integration
 

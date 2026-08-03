@@ -3925,7 +3925,7 @@ export default function App() {
     ...(preferences.userMessageColor ? { "--user-message-bg": preferences.userMessageColor } : {})
   } as CSSProperties;
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.5.3";
+  const appVersion = "1.5.4";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -4745,8 +4745,14 @@ export default function App() {
               <div className="welcome-mark" aria-hidden="true">
                 <MessageSquare size={26} />
               </div>
-              <h2>Откройте чат или напишите Codex</h2>
-              <p>История появится после подключения.</p>
+              <h2>{activeThread ? "История этого чата пуста" : "Откройте чат или напишите Codex"}</h2>
+              <p>
+                {activeThread
+                  ? "Чат открыт — можно начать новую задачу."
+                  : connection === "connected"
+                    ? "Выберите чат в списке или начните новый диалог."
+                    : "История появится после подключения."}
+              </p>
             </div>
           ) : (
             <>

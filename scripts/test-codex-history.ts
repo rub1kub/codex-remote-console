@@ -62,42 +62,26 @@ async function testPaginatedHistory() {
       return { result: { thread: { id: "thread-1", preview: "History", turns: [] } } };
     }
     if (request.method === "thread/turns/list") {
-      if (request.params.cursor === null) {
-        return {
-          result: {
-            data: [{ id: "turn-1", status: "completed", items: [] }],
-            nextCursor: "turn-page-2"
-          }
-        };
-      }
       return {
         result: {
-          data: [{ id: "turn-2", status: "completed", items: [] }],
-          nextCursor: null
-        }
-      };
-    }
-    if (request.method === "thread/items/list") {
-      if (request.params.turnId === "turn-1" && request.params.cursor === null) {
-        return {
-          result: {
-            data: [{ type: "userMessage", id: "item-1", content: [] }],
-            nextCursor: "item-page-2"
-          }
-        };
-      }
-      if (request.params.turnId === "turn-1") {
-        return {
-          result: {
-            data: [{ type: "agentMessage", id: "item-2", text: "Done" }],
-            nextCursor: null
-          }
-        };
-      }
-      return {
-        result: {
-          data: [{ type: "agentMessage", id: "item-3", text: "Next" }],
-          nextCursor: null
+          data: [
+            {
+              id: "turn-2",
+              status: "completed",
+              itemsView: "summary",
+              items: [{ type: "agentMessage", id: "item-3", text: "Next" }]
+            },
+            {
+              id: "turn-1",
+              status: "completed",
+              itemsView: "summary",
+              items: [
+                { type: "userMessage", id: "item-1", content: [] },
+                { type: "agentMessage", id: "item-2", text: "Done" }
+              ]
+            }
+          ],
+          nextCursor: "older-turns"
         }
       };
     }
@@ -109,9 +93,19 @@ async function testPaginatedHistory() {
   };
 
   assert(result.thread.turns.length === 2, "turn pagination did not preserve every turn");
-  assert(result.thread.turns[0].items.map((item) => item.id).join(",") === "item-1,item-2", "item pagination lost order or data");
+  assert(result.thread.turns[0].items.map((item) => item.id).join(",") === "item-1,item-2", "turn pagination lost item order or data");
   assert(result.thread.turns[1].items[0]?.id === "item-3", "items were assigned to the wrong turn");
-  assert(result.thread.turns.every((turn) => turn.itemsView === "full"), "assembled turns are not marked as fully loaded");
+  assert(result.thread.turns.every((turn) => turn.itemsView === "summary"), "assembled turns are not marked as summary history");
+  assert(
+    requests.filter((request) => request.method === "thread/turns/list").every((request) => request.params.itemsView === "summary"),
+    "turn pages did not request summary items"
+  );
+  assert(requests.filter((request) => request.method === "thread/turns/list").length === 1, "history waited for more than one turn page");
+  assert(
+    requests.find((request) => request.method === "thread/turns/list")?.params.sortDirection === "desc",
+    "history did not request the newest turn page first"
+  );
+  assert(!requests.some((request) => request.method === "thread/items/list"), "unsupported thread/items/list was requested");
   assert(
     requests.filter((request) => request.method === "thread/read").every((request) => request.params.includeTurns === false),
     "paginated history unexpectedly requested a monolithic transcript"
@@ -119,7 +113,7 @@ async function testPaginatedHistory() {
   bridge.dispose();
 }
 
-async function testLegacyFallback() {
+async function testUnsupportedPaginationFallback() {
   let readCount = 0;
   const { bridge, requests } = bridgeWithResponses((request) => {
     if (request.method === "thread/read") {
@@ -129,7 +123,7 @@ async function testLegacyFallback() {
         : { result: { thread: { id: "thread-legacy", turns: [{ id: "turn-legacy", items: [] }] } } };
     }
     if (request.method === "thread/turns/list") {
-      return { error: { code: -32601, message: "Method not found" } };
+      return { error: { code: -32601, message: "thread/turns/list is not supported yet" } };
     }
     throw new Error(`Unexpected method: ${request.method}`);
   });
@@ -142,7 +136,130 @@ async function testLegacyFallback() {
   bridge.dispose();
 }
 
+async function testEmptySummaryLoadsFullHistory() {
+  let readCount = 0;
+  const { bridge, requests } = bridgeWithResponses((request) => {
+    if (request.method === "thread/read") {
+      readCount += 1;
+      return readCount === 1
+        ? { result: { thread: { id: "thread-resume", turns: [] } } }
+        : {
+            result: {
+              thread: {
+                id: "thread-resume",
+                turns: [{
+                  id: "turn-restored",
+                  status: "completed",
+                  items: [{ type: "agentMessage", id: "item-restored", text: "Restored" }]
+                }]
+              }
+            }
+          };
+    }
+    if (request.method === "thread/turns/list") {
+      return {
+        result: {
+          data: [{ id: "turn-empty", status: "completed", itemsView: "summary", items: [] }],
+          nextCursor: null
+        }
+      };
+    }
+    throw new Error(`Unexpected method: ${request.method}`);
+  });
+
+  const result = await bridge.readThread("thread-resume") as {
+    thread: { turns: Array<{ items: Array<{ id: string }> }> };
+  };
+  assert(result.thread.turns[0]?.items[0]?.id === "item-restored", "empty summary did not load full history");
+  assert(requests.filter((request) => request.method === "thread/read").length === 2, "empty summary did not trigger a full read");
+  assert(requests.filter((request) => request.method === "thread/read")[1]?.params.includeTurns === true, "empty summary fallback omitted turns");
+  bridge.dispose();
+}
+
+async function testEmptySummaryPageLoadsFullHistory() {
+  let readCount = 0;
+  const { bridge, requests } = bridgeWithResponses((request) => {
+    if (request.method === "thread/read") {
+      readCount += 1;
+      return readCount === 1
+        ? { result: { thread: { id: "thread-empty-page", turns: [] } } }
+        : {
+            result: {
+              thread: {
+                id: "thread-empty-page",
+                turns: [{
+                  id: "turn-restored",
+                  status: "completed",
+                  items: [{ type: "agentMessage", id: "item-restored", text: "Restored" }]
+                }]
+              }
+            }
+          };
+    }
+    if (request.method === "thread/turns/list") {
+      return { result: { data: [], nextCursor: null } };
+    }
+    throw new Error(`Unexpected method: ${request.method}`);
+  });
+
+  const result = await bridge.readThread("thread-empty-page") as {
+    thread: { turns: Array<{ items: Array<{ id: string }> }> };
+  };
+  assert(result.thread.turns[0]?.items[0]?.id === "item-restored", "empty summary page did not load full history");
+  assert(requests.filter((request) => request.method === "thread/read").length === 2, "empty summary page did not trigger a full read");
+  assert(requests.filter((request) => request.method === "thread/read")[1]?.params.includeTurns === true, "empty summary page fallback omitted turns");
+  bridge.dispose();
+}
+
+async function testNonDisplayableSummaryLoadsFullHistory() {
+  let readCount = 0;
+  const { bridge, requests } = bridgeWithResponses((request) => {
+    if (request.method === "thread/read") {
+      readCount += 1;
+      return readCount === 1
+        ? { result: { thread: { id: "thread-non-displayable", turns: [] } } }
+        : {
+            result: {
+              thread: {
+                id: "thread-non-displayable",
+                turns: [{
+                  id: "turn-restored",
+                  status: "completed",
+                  items: [{ type: "agentMessage", id: "item-restored", text: "Restored" }]
+                }]
+              }
+            }
+          };
+    }
+    if (request.method === "thread/turns/list") {
+      return {
+        result: {
+          data: [{
+            id: "turn-summary-only",
+            status: "completed",
+            itemsView: "summary",
+            items: [{ type: "reasoning", id: "item-reasoning", summary: [] }]
+          }],
+          nextCursor: null
+        }
+      };
+    }
+    throw new Error(`Unexpected method: ${request.method}`);
+  });
+
+  const result = await bridge.readThread("thread-non-displayable") as {
+    thread: { turns: Array<{ items: Array<{ id: string }> }> };
+  };
+  assert(result.thread.turns[0]?.items[0]?.id === "item-restored", "non-displayable summary did not load full history");
+  assert(requests.filter((request) => request.method === "thread/read").length === 2, "non-displayable summary did not trigger a full read");
+  assert(requests.filter((request) => request.method === "thread/read")[1]?.params.includeTurns === true, "non-displayable summary fallback omitted turns");
+  bridge.dispose();
+}
+
 await testPaginatedHistory();
-await testLegacyFallback();
+await testUnsupportedPaginationFallback();
+await testEmptySummaryLoadsFullHistory();
+await testEmptySummaryPageLoadsFullHistory();
+await testNonDisplayableSummaryLoadsFullHistory();
 
 console.log("codex history: ok");
