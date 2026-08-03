@@ -256,10 +256,34 @@ async function testNonDisplayableSummaryLoadsFullHistory() {
   bridge.dispose();
 }
 
+async function testUnmaterializedThreadOpensEmpty() {
+  const { bridge, requests } = bridgeWithResponses((request) => {
+    if (request.method === "thread/read") {
+      return { result: { thread: { id: "thread-new", turns: [] } } };
+    }
+    if (request.method === "thread/turns/list") {
+      return {
+        error: {
+          code: -32602,
+          message: "thread thread-new is not materialized yet; thread/turns/list is unavailable before first user message"
+        }
+      };
+    }
+    throw new Error(`Unexpected method: ${request.method}`);
+  });
+
+  const result = await bridge.readThread("thread-new") as { thread: { turns: unknown[] } };
+  assert(Array.isArray(result.thread.turns) && result.thread.turns.length === 0, "unmaterialized thread did not open with empty history");
+  assert(requests.filter((request) => request.method === "thread/read").length === 1, "unmaterialized thread triggered an unnecessary extra read");
+  assert(!requests.some((request) => request.method === "thread/read" && request.params.includeTurns === true), "unmaterialized thread fell back to the legacy monolithic read");
+  bridge.dispose();
+}
+
 await testPaginatedHistory();
 await testUnsupportedPaginationFallback();
 await testEmptySummaryLoadsFullHistory();
 await testEmptySummaryPageLoadsFullHistory();
 await testNonDisplayableSummaryLoadsFullHistory();
+await testUnmaterializedThreadOpensEmpty();
 
 console.log("codex history: ok");

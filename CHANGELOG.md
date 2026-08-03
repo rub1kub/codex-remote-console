@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.5.7 - 2026-08-04
+
+- Added markdown rendering for chat messages: `#`-`######` headings, `-`/`*` and `1.` lists, `> ` blockquotes, and `**bold**`/`*italic*`/`_italic_` now render as real elements instead of showing the raw markdown characters (e.g. a literal `## Текущее состояние` line). Extends the existing safe renderer — every branch still returns React elements, never raw HTML, so this stays a read-only formatting layer, not a new injection surface.
+- Extracted the message-rendering functions out of `App.tsx` into `src/messageMarkdown.tsx` and added `scripts/test-markdown.ts`, a real regression test (`react-dom/server` + `renderToStaticMarkup`, no browser needed) covering headings, lists, blockquotes, bold/italic, code spans, file references, and the `snake_case` vs `_italic_` boundary check.
+
+## 1.5.6 - 2026-08-04
+
+- Fixed a stray solid blue bar poking out above the composer's rounded corners while a task is running: two CSS layers each declared half of the same `::before` pulse-ring element (one an old horizontal progress bar, one the current outline ring), and their unrelated properties (a fixed `height`, a solid `background`) leaked through and merged into a broken hybrid shape instead of the intended full ring around the capsule.
+- Added a clearly-labeled way to skip the send queue: while a task is running, the "В очереди N" banner now has an "Прервать и отправить" button that stops the current task and immediately runs the next queued message, instead of only being reachable by separately guessing that the stop button drains the queue.
+- Hid the token counter by default (in both the task-status bar and the task summary card in the chat feed); the existing "Показывать токены задачи" toggle in Settings → Поведение still turns it back on.
+- Added account usage visibility: Settings → Сервер now shows the current rate-limit window's used percentage, reset time, and plan (via the native `account/rateLimits/read` app-server method), fetched automatically after connecting. Best-effort — silently absent on older CLI builds that don't support the method.
+
+## 1.5.5 - 2026-08-04
+
+- Fixed opening a brand-new chat (or any thread with no turns yet): the app-server rejects `thread/turns/list` on an unmaterialized thread with "is not materialized yet; thread/turns/list is unavailable before first user message", and that specific message was not recognized as a normal empty-history case, so it surfaced as a hard error and blocked the chat from opening. It's now treated as "zero turns" and the chat opens normally.
+- Fixed a double focus ring on the composer, search box, and command palette input: a generic keyboard-focus outline was stacking on top of each field's own blue focus glow (and, on plain settings inputs, on top of a leftover green ring from before the accent-color cleanup). Text fields now show exactly one blue ring.
+
 ## 1.5.4 - 2026-08-03
 
 - Fixed the 1.5.3 history regression on Codex servers where `thread/turns/list` is available but `thread/items/list` still returns `is not supported yet`: chat history now opens from one bounded page of the 20 newest compact summary turns, so it neither calls the unsupported endpoint nor waits for the entire archive before rendering.

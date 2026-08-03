@@ -50,6 +50,7 @@ import { createPortal } from "react-dom";
 import { TaskCenter } from "./TaskCenter";
 import { ProjectWorkbench } from "./ProjectWorkbench";
 import { dedupeThreadItems } from "./messageHistory";
+import { renderTextBlocks } from "./messageMarkdown";
 import {
   fallbackCodexModels,
   modelForSelection,
@@ -71,6 +72,7 @@ import {
 } from "./workspaceState";
 
 import type {
+  AccountRateLimits,
   AppPreferences,
   AppUpdateStatus,
   ChatMessage,
@@ -270,7 +272,7 @@ const defaultPreferences: AppPreferences = {
   notifyOnCompletion: true,
   showDiagnostics: false,
   showTaskTimer: true,
-  showTokenUsage: true,
+  showTokenUsage: false,
   appUpdateChannel: "stable",
   historyLimit: 80,
   defaultUpdateCommand
@@ -487,6 +489,13 @@ function formatTokens(stats: TaskTokenStats | null) {
   return `токены: ${compactNumber.format(total)}`;
 }
 
+function formatRateLimitWindow(minutes: number) {
+  if (minutes >= 60 * 24 * 6) return "неделя";
+  if (minutes >= 60 * 20) return "сутки";
+  if (minutes >= 55) return "час";
+  return `${minutes} мин`;
+}
+
 function formatBytes(value?: number) {
   if (!value) return "--";
   if (value < 1024) return `${value} Б`;
@@ -615,66 +624,8 @@ const messageAvatarLabel: Record<ChatMessage["role"], string> = {
   system: "i"
 };
 
-function renderInlineText(text: string, keyPrefix: string) {
-  return text.split(/(`[^`\n]+`|\[[^\]\n]+\]\([^)]+\))/g).map((part, index) => {
-    const key = `${keyPrefix}-inline-${index}`;
-    const codeMatch = part.match(/^`([^`]+)`$/);
-    if (codeMatch) {
-      return (
-        <code key={key} className="inline-code">
-          {codeMatch[1]}
-        </code>
-      );
-    }
-
-    const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-    if (linkMatch) {
-      return (
-        <span key={key} className="file-reference" title={linkMatch[2]}>
-          {linkMatch[1]}
-        </span>
-      );
-    }
-
-    return part;
-  });
-}
-
-function renderTextBlocks(message: ChatMessage) {
-  if (message.role === "tool") {
-    return (
-      <pre className={`message-code tool-output ${message.muted ? "muted" : ""}`}>
-        {message.text}
-      </pre>
-    );
-  }
-
-  return message.text
-    .split("```")
-    .map((part, index) => {
-      const key = `${message.id}-${index}`;
-      if (!part.trim()) return null;
-
-      if (index % 2 === 1) {
-        return (
-          <pre key={key} className={`message-code ${message.muted ? "muted" : ""}`}>
-            {part.trim()}
-          </pre>
-        );
-      }
-
-      return part
-        .split(/\n{2,}/)
-        .map((paragraph, paragraphIndex) =>
-          paragraph.trim() ? (
-            <p key={`${key}-${paragraphIndex}`} className={`message-text ${message.muted ? "muted" : ""}`}>
-              {renderInlineText(paragraph.trim(), `${key}-${paragraphIndex}`)}
-            </p>
-          ) : null
-        );
-    })
-    .flat();
-}
+// Rendering lives in ./messageMarkdown (a Vite-asset-free module: App.tsx
+// imports .webp files, which breaks plain-Node test imports of this file).
 
 function itemToMessage(item: ThreadItem): ChatMessage | null {
   if (item.type === "userMessage") {
@@ -1105,6 +1056,7 @@ export default function App() {
   const [preferences, setPreferences] = useState<AppPreferences>(defaultPreferences);
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const [cliStatus, setCliStatus] = useState<CodexCliStatus | null>(null);
+  const [accountRateLimits, setAccountRateLimits] = useState<AccountRateLimits | null>(null);
   const [cliProfileId, setCliProfileId] = useState("");
   const [cliPhase, setCliPhase] = useState<"idle" | "checking" | "checked" | "updating" | "updated">("idle");
   const [error, setError] = useState("");
@@ -2609,6 +2561,7 @@ export default function App() {
       );
       if (message.status !== "connected") {
         setLoadingThreadId("");
+        setAccountRateLimits(null);
       }
       if (message.status === "connected") {
         manualDisconnectRef.current = false;
@@ -2671,6 +2624,11 @@ export default function App() {
       if (message.error) {
         addLog(`Каталог моделей недоступен: ${friendlyErrorMessage(message.error)}`);
       }
+      return;
+    }
+
+    if (message.type === "accountRateLimits") {
+      setAccountRateLimits(message.result);
       return;
     }
 
@@ -3925,7 +3883,7 @@ export default function App() {
     ...(preferences.userMessageColor ? { "--user-message-bg": preferences.userMessageColor } : {})
   } as CSSProperties;
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.5.4";
+  const appVersion = "1.5.7";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -4891,7 +4849,7 @@ export default function App() {
             </div>
             <div className="task-summary-grid">
               <span>время <strong>{formatDuration(lastTaskSummary.elapsedMs)}</strong></span>
-              {lastTaskSummary.tokens && (
+              {preferences.showTokenUsage && lastTaskSummary.tokens && (
                 lastTaskSummary.tokens.total !== undefined ||
                 lastTaskSummary.tokens.input !== undefined ||
                 lastTaskSummary.tokens.output !== undefined
@@ -4955,6 +4913,14 @@ export default function App() {
           <div className="queue-status">
             <History size={15} />
             <span>В очереди {taskQueue.length}</span>
+            <button
+              type="button"
+              className="queue-status-send-now"
+              onClick={() => send({ type: "interrupt" })}
+              title="Остановить текущую задачу и сразу начать первую из очереди"
+            >
+              Прервать и отправить
+            </button>
             <button type="button" onClick={() => setTaskQueue([])}>Очистить</button>
           </div>
         )}
@@ -6685,6 +6651,20 @@ export default function App() {
                 <Terminal size={14} />
                 <span>{lastLogLine}</span>
               </div>
+              {accountRateLimits?.rateLimits.primary && (
+                <div className="secret-card">
+                  <div>
+                    <Gauge size={15} />
+                    <span>
+                      Использовано {accountRateLimits.rateLimits.primary.usedPercent}%
+                      {" "}за {formatRateLimitWindow(accountRateLimits.rateLimits.primary.windowDurationMins)}
+                      {" · сброс "}
+                      {formatDate(accountRateLimits.rateLimits.primary.resetsAt)}
+                      {accountRateLimits.rateLimits.planType ? ` · план ${accountRateLimits.rateLimits.planType}` : ""}
+                    </span>
+                  </div>
+                </div>
+              )}
               <div className="secret-card">
                 <div>
                   <KeyRound size={15} />

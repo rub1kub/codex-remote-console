@@ -169,17 +169,23 @@ html.theme-snap *::after {
   transform: scale(0.96);
 }
 
+/* Form controls (input/textarea/select) get their focus ring from their own
+   :focus box-shadow (or a wrapper's :focus-within glow) below, so they're
+   excluded here. Unlike buttons, they match :focus-visible on a plain mouse
+   click too, which was stacking a second ring on top of the intended one. */
 .command-studio button:focus-visible,
-.command-studio input:focus-visible,
-.command-studio textarea:focus-visible,
-.command-studio select:focus-visible,
 .command-studio [role="button"]:focus-visible,
-.app-portal.command-studio button:focus-visible,
-.app-portal.command-studio input:focus-visible,
-.app-portal.command-studio textarea:focus-visible,
-.app-portal.command-studio select:focus-visible {
+.app-portal.command-studio button:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--ai-accent) 72%, transparent);
   outline-offset: 2px;
+}
+
+/* These inputs sit inside a capsule that already glows on :focus-within;
+   suppress the input's own ring so only one ring ever shows. */
+.command-studio .search-box input:focus,
+.command-studio .composer textarea:focus,
+.app-portal.command-studio .command-search input:focus {
+  box-shadow: none;
 }
 
 /* Window chrome: no title strip. The sidebar material runs full height and
@@ -961,6 +967,70 @@ html.theme-snap *::after {
   margin-bottom: 0;
 }
 
+.command-studio .message-content strong,
+.command-studio .message-text strong,
+.command-studio .message-heading {
+  font-weight: 690;
+}
+
+.command-studio .message-content em,
+.command-studio .message-text em {
+  font-style: italic;
+}
+
+.command-studio .message-heading {
+  margin: 14px 0 6px;
+  color: var(--text-1);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.command-studio .message-heading:first-child {
+  margin-top: 0;
+}
+
+.command-studio .message-list {
+  margin: 0 0 9px;
+  padding-left: 20px;
+  color: var(--text-1);
+  font-size: 13px;
+  line-height: 1.62;
+}
+
+.command-studio .message-list:last-child {
+  margin-bottom: 0;
+}
+
+.command-studio .message-list li + li {
+  margin-top: 2px;
+}
+
+.command-studio .message-list ul,
+.command-studio .message-list ol {
+  margin-top: 2px;
+}
+
+.command-studio .message-quote {
+  margin: 0 0 9px;
+  padding: 2px 0 2px 11px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--text-2);
+}
+
+.command-studio .message-quote:last-child {
+  margin-bottom: 0;
+}
+
+.command-studio .message.user .message-heading,
+.command-studio .message.user .message-list,
+.command-studio .message.user .message-quote {
+  color: var(--primary-color);
+}
+
+.command-studio .message.user .message-quote {
+  border-left-color: color-mix(in srgb, var(--primary-color) 40%, transparent);
+}
+
 .command-studio .message.user {
   justify-content: flex-end;
   grid-template-columns: minmax(0, min(720px, 78%));
@@ -1250,6 +1320,11 @@ html.theme-snap *::after {
   background: color-mix(in srgb, var(--warning-accent) 7%, var(--surface-2));
 }
 
+.command-studio .queue-status-send-now {
+  border-color: color-mix(in srgb, var(--ai-accent) 45%, transparent);
+  color: var(--ai-accent);
+}
+
 /* Composer */
 
 /* One glass surface: the floating capsule. The strip is fully transparent
@@ -1299,8 +1374,11 @@ html.theme-snap *::after {
   position: absolute;
   inset: -1px;
   z-index: -1;
+  width: auto;
+  height: auto;
   border: 1px solid color-mix(in srgb, var(--ai-accent) 42%, transparent);
   border-radius: inherit;
+  background: none;
   opacity: 0.7;
   content: "";
   animation: aiPulse 1.8s ease-in-out infinite;

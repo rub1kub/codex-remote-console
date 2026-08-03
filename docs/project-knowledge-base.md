@@ -1,8 +1,8 @@
 # Codex Remote: полная база знаний проекта
 
-Дата актуализации: 2026-08-03
+Дата актуализации: 2026-08-04
 
-Версия приложения на момент среза: `1.5.4`
+Версия приложения на момент среза: `1.5.7`
 
 Ветка: `main`. Документ описывает текущее source tree; точную ревизию и наличие
 локальных правок перед любыми Git-операциями нужно проверять через `git status`
@@ -108,6 +108,7 @@ flowchart LR
 | `src/WorkspaceTabs.tsx` | Открытые чаты и переходы между проектами |
 | `src/taskProtocol.ts` | Корреляция turn events и завершение active task |
 | `src/messageHistory.ts` | Нормализация восстановленной истории без дублей |
+| `src/messageMarkdown.tsx` | Безопасный markdown-рендер сообщений (без HTML) |
 | `src/modelCatalog.ts` | Fallback-модели и capability-aware picker |
 | `src/workspaceState.ts` | Версионированное localStorage-состояние |
 | `src/types.ts` | Клиентские и wire-контракты |
@@ -405,6 +406,15 @@ ssh -T [options] target "bash -lc '<preflight && cd project && codex app-server 
   повторяет совместимый `thread/read includeTurns: true` с увеличенным timeout.
   Этот fallback восстанавливает полную историю, но не заменяет обязательный
   `thread/resume` перед следующим `turn/start`.
+- С 1.5.5: если `thread/turns/list` отвечает ошибкой вида "is not materialized
+  yet ... unavailable before first user message" (свежесозданный thread без
+  единого turn — самый частый случай открытия только что созданного нового
+  чата), это не ошибка и не unsupported-method сигнал: `readThread` сразу
+  возвращает `turns: []` без повторных запросов
+  (`isUnmaterializedThreadError` в `codexBridge.ts`, покрыто
+  `testUnmaterializedThreadOpensEmpty` в `scripts/test-codex-history.ts`). До
+  этой правки такой thread не открывался и ошибка всплывала в UI как
+  generic red banner.
 - Обычное чтение summary-истории не прикрепляет runtime turn state.
 - Поэтому перед отправкой в старый thread обязательно выполняется
   `thread/resume`.
@@ -421,6 +431,36 @@ Bridge отслеживает:
 
 Они обновляются по synchronous result и notifications `turn/started`,
 `turn/completed`. `interrupt` возможен только при наличии обоих ID.
+
+### Account rate limits (с 1.5.6)
+
+`readAccountRateLimits()` вызывает нативный `account/rateLimits/read` (не
+command-runner). Точная форма ответа проверена вживую против реального
+app-server (`codex-cli 0.144.0`):
+
+```ts
+{
+  rateLimits: {
+    limitId: string;
+    limitName: string | null;
+    primary: { usedPercent: number; windowDurationMins: number; resetsAt: number /* unix seconds */ } | null;
+    secondary: (той же формы) | null;
+    credits: { hasCredits: boolean; unlimited: boolean; balance: string } | null;
+    planType: string | null;
+    rateLimitReachedType: string | null;
+  };
+  rateLimitsByLimitId: Record<string, тот же RateLimitEntry>;
+}
+```
+
+Backend вызывает это best-effort сразу после успешного `connect` (fire-and-
+forget, ошибка не прерывает подключение) и шлет `{ type: "accountRateLimits" }`.
+Клиент показывает `rateLimits.primary` в Settings -> Сервер, только если оно
+не `null`; на старых CLI без этого метода карточка просто не появляется.
+Типы — `AccountRateLimits`/`RateLimitEntry`/`RateLimitWindow`/`RateLimitCredits`
+в `src/types.ts`. Не расширять эту секцию гаданием по `usage/read` (тоже
+существует нативно, но отдает `dailyUsageBuckets` — большой массив без
+инфраструктуры графиков в этом UI) без отдельного дизайн-решения.
 
 ### Sandbox mapping
 
@@ -642,6 +682,13 @@ security/product decision.
 - completion notifications;
 - diagnostics, timer, token usage;
 - app release channel;
+- `showTokenUsage` default с 1.5.6 — `false` (в `App.tsx` и продублированный
+  default в `server/profiles.ts`, менять синхронно). Токены не показываются
+  ни в task-status bar, ни в task-summary card в ленте, пока пользователь сам
+  не включит «Показывать токены задачи» в Settings -> Поведение. Inspector-
+  панель и Timeline-панель — исключение: это отдельные detail-панели,
+  которые пользователь открывает явно, там токены показываются всегда,
+  независимо от этого preference;
 - history limit 10..300;
 - default CLI update command.
 
@@ -851,6 +898,15 @@ Queue payload хранится только в памяти `App.tsx`. Task cent
 восстанавливаются. Нельзя обещать durable queue без переноса payload в backend
 store и отдельной политики для чувствительных вложений.
 
+Пока задача выполняется, новое сообщение всегда идет в очередь
+(`submitTaskOrQueue`) — параллельного/немедленного turn на одном thread
+app-server не поддерживает. С 1.5.6 в баннере `queue-status` есть явная
+кнопка «Прервать и отправить»: она просто шлет `{type:"interrupt"}` — этого
+достаточно, потому что `runNextQueuedTask()` уже вызывается для ЛЮБОГО
+terminal-статуса (`completed`/`interrupted`/`failed`) в общем completion-
+handler, а не только для успешного завершения. Не дублировать это ручным
+`startTask()` из кнопки — будет двойная отправка.
+
 ## 16. Attachments, mentions и approvals
 
 ### Inputs
@@ -964,6 +1020,31 @@ Agent prompts:
 Часть сложных Codex surfaces пока реализована как command runner, а не
 полноценный native wizard. Это сознательный gap, описанный в README.
 
+### Gap-анализ от 2026-08-04: что из app-server ещё не native
+
+`account/rateLimits/read` был реализован нативно в 1.5.6 (см. §8). Остальные
+проверенные по `docs/codex-cli-knowledge-base.md` §9 (~90 методов) и по
+фактическому списку вызовов в `codexBridge.ts` кандидаты, отранжированные по
+ценности для remote-dev-over-SSH сценария:
+
+1. **Background terminals / persistent process control**
+   (`process/spawn`+`writeStdin`+`resizePty`+`process/outputDelta`, либо
+   `thread/backgroundTerminals/*`). Сейчас Terminal drawer — одноразовый
+   `/api/project/command` (`server/index.ts` route, `runProjectQuickCommand` в
+   `remoteExec.ts`, UI ~App.tsx). Нет способа стартовать dev-сервер и стримить
+   его вывод, не блокируя запрос.
+2. **`skills/list`** — native `skill` mention в `UserInput` уже существует
+   (см. §16), но нет picker'а: `/skills` просто шлет текстовый промпт.
+3. **`mcpServerStatus/list`** — заменил бы текстовый шим `codex mcp list`
+   (`/api/codex/mcp`) на структурированный статус серверов/tools.
+4. **`thread/name/set` / `thread/goal/*`** — низкий приоритет, пересекается с
+   локальными thread-metadata title/pin (§11), ценность ниже пп. 1–3.
+
+`/doctor /mcp /plugins /login /logout /app-server /remote-control /sandbox
+/completion /cloud /apply /exec-server /features` (список выше) — намеренно
+не трогать без отдельного product decision: это explicitly flagged gap, а не
+случайный недосмотр.
+
 ## 19. UI-компоненты и визуальная система
 
 ### Основные области
@@ -993,6 +1074,21 @@ Agent prompts:
 - финальная тема/geometry почти всегда переопределяется в `redesign.css`.
 
 Не добавлять третий глобальный override layer без необходимости.
+
+**Ловушка при переопределении `::before`/`::after` между слоями** (нашлось в
+1.5.6 на `.composer.working .composer-box::before`): если оба слоя стилизуют
+один и тот же псевдоэлемент, но НЕ идентичным набором свойств (например, база
+задает `top/right/left/height/background`, а redesign — `inset/border`), CSS
+не "заменяет" старое правило целиком — каждое отдельное свойство (longhand)
+конкурирует по specificity САМО ПО СЕБЕ. Любое свойство, которое новый слой не
+трогает, наследуется из старого правила и молча подмешивается в итоговую
+фигуру. Итог в этом баге: сплошная синяя 2px-полоса с прямыми углами вместо
+задуманного прозрачного кольца вокруг капсулы. Правило: при полном
+редизайне псевдоэлемента — либо удалить старое правило из `styles.css`
+(оставив только `content: ""` geometry-placeholder, если селектор нужен для
+других целей), либо явно обнулить в redesign.css все свойства, которые база
+когда-либо задавала для этого селектора (`background`, `height`/`width` и
+т.д.), а не полагаться, что более высокая specificity "выигрывает всё".
 
 С 1.5.2 палитра обоих слоев нейтральная (Apple-стиль): системный синий
 акцент, нейтральные серые вместо прежних зелено-фиолетовых оттенков. Легаси
@@ -1080,6 +1176,17 @@ colors прокидываются из preferences.
 - Sidebar footer и composer выровнены по нижней линии.
 - Плавающие меню не перекрываются parent stacking context.
 - Изменение темы атомарно.
+- На любом текстовом поле в фокусе виден ровно один синий ring. С 1.5.5
+  `input`/`textarea` исключены из общего `:focus-visible` outline правила
+  (`redesign.css`): в отличие от кнопок, текстовые поля матчат
+  `:focus-visible` на обычный клик мышью, а не только на клавиатурную
+  навигацию, поэтому этот outline стабильно накладывался поверх
+  собственного `:focus`/`:focus-within` свечения поля или обёртки (composer
+  textarea, `.search-box`, `.command-search`). Базовое `input:focus` в
+  `styles.css` также было легаси-зелёным (`#20907b`) — токенизировано в
+  `var(--ai-accent)`. Добавляя новый текстовый инпут: не давать ему
+  собственный `:focus-visible` outline, полагаться на `:focus`/
+  `:focus-within` box-shadow.
 
 ## 20. Testing strategy
 
@@ -1092,6 +1199,7 @@ colors прокидываются из preferences.
 | `npm run test:model-catalog` | Models/reasoning/service tiers |
 | `npm run test:message-history` | Удаление дублей user messages |
 | `npm run test:codex-history` | Summary turn pages, запрет items/list и legacy fallback |
+| `npm run test:markdown` | Заголовки/списки/quote/bold/italic из `messageMarkdown.tsx`, `renderToStaticMarkup` без jsdom |
 
 ### Local integration
 
@@ -1370,8 +1478,16 @@ Assistant text сам по себе не означает завершение.
 15. `WorkspaceTabs` не подключен к UI, хотя state и компонент существуют.
 16. `interfaceStyle` персистентен, но визуально не применяется.
 17. В репозитории нет LICENSE и зафиксированной Node toolchain.
-18. Ручной Markdown renderer поддерживает только ограниченное подмножество
-    Markdown; изменения ссылок и HTML требуют отдельного security review.
+18. Ручной Markdown renderer (`src/messageMarkdown.tsx`, с 1.5.7) — не
+    HTML-based, каждая ветка возвращает React-элементы намеренно (security
+    boundary, не менять на `dangerouslySetInnerHTML`). Поддерживает: fenced
+    code (с обрезкой language hint), inline `code`, `[label](path)`
+    file-reference, `**bold**`, `*italic*`/`_italic_` (с проверкой границ
+    слова, чтобы не ломать `snake_case`), заголовки `#`-`######` (визуально
+    зажаты в h4-h6), `- `/`* ` и `1. ` списки, `> ` blockquote. НЕ
+    поддерживает: таблицы, вложенные списки, strikethrough, horizontal rule,
+    reference-style links, HTML passthrough. Любое расширение — только через
+    добавление React-ветки, не через HTML-строки.
 
 Эти пункты нельзя «исправлять заодно». Для каждого нужна отдельная threat/model
 или migration decision и focused tests.

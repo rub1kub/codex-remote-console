@@ -246,6 +246,33 @@ export type CodexThread = {
   turns?: Turn[];
 };
 
+export type RateLimitWindow = {
+  usedPercent: number;
+  windowDurationMins: number;
+  resetsAt: number;
+};
+
+export type RateLimitCredits = {
+  hasCredits: boolean;
+  unlimited: boolean;
+  balance: string;
+};
+
+export type RateLimitEntry = {
+  limitId: string;
+  limitName: string | null;
+  primary: RateLimitWindow | null;
+  secondary: RateLimitWindow | null;
+  credits: RateLimitCredits | null;
+  planType: string | null;
+  rateLimitReachedType: string | null;
+};
+
+export type AccountRateLimits = {
+  rateLimits: RateLimitEntry;
+  rateLimitsByLimitId: Record<string, RateLimitEntry>;
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "tool" | "system";
@@ -266,4 +293,5 @@ export type ServerMessage =
   | { type: "codexCli"; phase: "checking" | "checked" | "updating" | "updated"; profileId?: string; result: CodexCliStatus | null }
   | { type: "models"; result: CodexModelList; error?: string }
   | { type: "error"; message: string }
-  | { type: "interrupt"; result: unknown };
+  | { type: "interrupt"; result: unknown }
+  | { type: "accountRateLimits"; result: AccountRateLimits | null; error?: string };

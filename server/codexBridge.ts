@@ -62,6 +62,13 @@ function isUnsupportedHistoryPagination(error: unknown) {
     /method not found|unknown method|unsupported method|not supported|not implemented/i.test(error.message);
 }
 
+// A brand-new thread with no turns yet (e.g. right after creation, before the
+// first message is sent) is not an error: there is simply nothing to list.
+function isUnmaterializedThreadError(error: unknown) {
+  return error instanceof Error &&
+    /not materialized|before first user message/i.test(error.message);
+}
+
 function hasDisplayableHistoryItems(turns: ThreadTurn[]) {
   return turns.some((turn) => (turn.items ?? []).some((item) => {
     if (!item || typeof item !== "object") return false;
@@ -354,7 +361,7 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       clientInfo: {
         name: "codex_remote_console",
         title: "Codex Remote Console",
-        version: "1.5.4"
+        version: "1.5.7"
       },
       capabilities: {
         experimentalApi: true
@@ -433,6 +440,10 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
         }
       };
     } catch (error) {
+      if (isUnmaterializedThreadError(error)) {
+        if (!metadata.thread) return metadata;
+        return { ...metadata, thread: { ...metadata.thread, turns: [] } };
+      }
       if (!isUnsupportedHistoryPagination(error)) throw error;
       return this.request(
         "thread/read",
@@ -578,6 +589,10 @@ export class CodexBridge extends EventEmitter<BridgeEvents> {
       threadId: this.activeThreadId,
       turnId: this.activeTurnId
     });
+  }
+
+  async readAccountRateLimits() {
+    return this.request("account/rateLimits/read", {});
   }
 
   respondRequest(id: number | string, result: unknown) {

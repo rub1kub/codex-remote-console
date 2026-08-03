@@ -42,7 +42,7 @@ const defaultPreferences: AppPreferences = {
   notifyOnCompletion: true,
   showDiagnostics: false,
   showTaskTimer: true,
-  showTokenUsage: true,
+  showTokenUsage: false,
   appUpdateChannel: "stable",
   historyLimit: 80,
   defaultUpdateCommand

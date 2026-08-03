@@ -621,8 +621,8 @@ textarea {
 select:focus,
 input:focus,
 textarea:focus {
-  border-color: #20907b;
-  box-shadow: 0 0 0 3px rgba(36, 138, 61, 0.12);
+  border-color: var(--ai-accent, #007aff);
+  box-shadow: 0 0 0 3px var(--ai-accent-soft, rgba(0, 122, 255, 0.12));
 }
 
 .primary-button,
@@ -1972,17 +1972,13 @@ textarea:focus {
   box-shadow: 0 0 0 3px var(--ai-accent-soft), 0 10px 30px rgba(0, 102, 214, 0.08);
 }
 
+/* Geometry only: redesign.css draws the actual pulsing ring for this
+   pseudo-element and must fully own position/size/background, or its
+   `inset` merges with this rule's now-unrelated top/right/left/height into a
+   broken hybrid shape (a solid bar poking out past the capsule's rounded
+   corners instead of an outline hugging them). */
 .composer.working .composer-box::before {
-  position: absolute;
-  top: -1px;
-  right: 12px;
-  left: 12px;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--ai-accent);
   content: "";
-  transform-origin: left;
-  animation: aiProgress 2.2s ease-in-out infinite;
 }
 
 .hidden-file-input {
@@ -4232,18 +4228,6 @@ textarea:focus {
   50% {
     opacity: 1;
     transform: scale(1.04);
-  }
-}
-
-@keyframes aiProgress {
-  0%,
-  100% {
-    opacity: 0.45;
-    transform: scaleX(0.18);
-  }
-  50% {
-    opacity: 1;
-    transform: scaleX(1);
   }
 }
 

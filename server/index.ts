@@ -593,6 +593,18 @@ export async function startServer(
               limit: preferences.historyLimit
             })
           });
+          // Account-level and best-effort: older CLI builds may not support
+          // this method, and it must never block or fail the connection.
+          bridge
+            .readAccountRateLimits()
+            .then((result) => send(ws, { type: "accountRateLimits", result }))
+            .catch((error) => {
+              send(ws, {
+                type: "accountRateLimits",
+                result: null,
+                error: error instanceof Error ? error.message : String(error)
+              });
+            });
           return;
         }
 
@@ -741,6 +753,16 @@ export async function startServer(
           });
         } else if (message.type === "interrupt") {
           send(ws, { type: "interrupt", result: await bridge.interrupt() });
+        } else if (message.type === "accountRateLimits") {
+          try {
+            send(ws, { type: "accountRateLimits", result: await bridge.readAccountRateLimits() });
+          } catch (error) {
+            send(ws, {
+              type: "accountRateLimits",
+              result: null,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
         }
       } catch (error) {
         if (messageType === "connect") {
