@@ -4124,7 +4124,7 @@ export default function App() {
     ...(preferences.userMessageColor ? { "--user-message-bg": preferences.userMessageColor } : {})
   } as CSSProperties;
   const lastLogLine = logs[0] || "нет событий";
-  const appVersion = "1.9.0";
+  const appVersion = "1.9.1";
   const repoUrl = "https://github.com/rub1kub/codex-remote-console";
   const releaseUrl = `${repoUrl}/releases/tag/v${appVersion}`;
   const commandActions = useMemo<CommandAction[]>(
@@ -4839,6 +4839,16 @@ export default function App() {
               <Command size={15} />
               <span>K</span>
             </button>
+            {(lastTaskSummary || isBusy) && (
+              <button
+                className="toolbar-icon-button"
+                onClick={() => setResponseInspectorOpen((current) => !current)}
+                title={isResponseInspectorOpen ? "Закрыть детали задачи" : "Открыть детали задачи"}
+                aria-label={isResponseInspectorOpen ? "Закрыть детали задачи" : "Открыть детали задачи"}
+              >
+                <PanelRightOpen size={15} />
+              </button>
+            )}
             <button
               className="toolbar-icon-button"
               onClick={openSettings}
@@ -5075,82 +5085,6 @@ export default function App() {
           )}
           {!loadingThreadId && messages.length > 0 && <div ref={endRef} />}
         </div>
-
-        {lastTaskSummary && (
-          <section className={`task-summary-card ${lastTaskSummary.status}`}>
-            <div className="task-summary-head">
-              <div>
-                {lastTaskSummary.status === "failed" ? (
-                  <X size={15} />
-                ) : lastTaskSummary.status === "interrupted" ? (
-                  <Square size={15} />
-                ) : (
-                  <Check size={15} />
-                )}
-                <strong>
-                  {lastTaskSummary.status === "failed"
-                    ? "Задача не выполнена"
-                    : lastTaskSummary.status === "interrupted"
-                      ? "Задача остановлена"
-                      : "Итог задачи"}
-                </strong>
-              </div>
-              <div className="task-summary-actions">
-                <small>{formatDate(Math.floor(lastTaskSummary.completedAt / 1000))}</small>
-                <button
-                  type="button"
-                  className="task-summary-inspector"
-                  onClick={() => setResponseInspectorOpen((current) => !current)}
-                  title={isResponseInspectorOpen ? "Закрыть детали задачи" : "Открыть детали задачи"}
-                  aria-label={isResponseInspectorOpen ? "Закрыть детали задачи" : "Открыть детали задачи"}
-                >
-                  <PanelRightOpen size={14} />
-                </button>
-              </div>
-            </div>
-            <div className="task-summary-grid">
-              <span>время <strong>{formatDuration(lastTaskSummary.elapsedMs)}</strong></span>
-              {preferences.showTokenUsage && lastTaskSummary.tokens && (
-                lastTaskSummary.tokens.total !== undefined ||
-                lastTaskSummary.tokens.input !== undefined ||
-                lastTaskSummary.tokens.output !== undefined
-              ) && <span>{formatTokens(lastTaskSummary.tokens)}</span>}
-              {lastTaskSummary.commands.length > 0 && (
-                <span>команды <strong>{lastTaskSummary.commands.length}</strong></span>
-              )}
-              {lastTaskSummary.tests.length > 0 && (
-                <span>проверки <strong>{lastTaskSummary.tests.length}</strong></span>
-              )}
-            </div>
-            {lastTaskSummary.errorMessage && (
-              <div className="task-summary-error">{lastTaskSummary.errorMessage}</div>
-            )}
-            {lastTaskSummary.files.length > 0 && (
-              <div className="task-summary-files">
-                <button type="button" onClick={() => void openProjectDiff(lastTaskSummary.files)}>
-                  <FileText size={14} />
-                  Файлы {lastTaskSummary.files.length}
-                </button>
-                {lastTaskSummary.files.slice(0, 5).map((file) => (
-                  <button key={file.key} type="button" onClick={() => void openProjectDiff([file])}>
-                    {file.label}
-                  </button>
-                ))}
-              </div>
-            )}
-            {lastTaskSummary.commands.length > 0 && (
-              <details className="task-summary-details">
-                <summary>Команды</summary>
-                {lastTaskSummary.commands.map((command, index) => (
-                  <code key={`${command.command}-${index}`}>
-                    {command.command}
-                    {command.exitCode !== undefined && command.exitCode !== null ? ` · ${command.exitCode}` : ""}
-                  </code>
-                ))}
-              </details>
-            )}
-          </section>
-        )}
 
         {showTaskStatus && (
           <div className={`task-status ${isBusy ? "working" : "done"}`} aria-live="polite">

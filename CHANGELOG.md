@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.1 - 2026-08-04
+
+- Removed the "Итог задачи" (task summary) card that used to sit under every finished answer: it duplicated the "Обработка заняла Xм Yс" line already shown in the collapsed "Ход работы" toggle above the answer, and looked disconnected from the message it belonged to. Changed files are still shown inline per turn, command/test output is still in "Ход работы", and the removed "Детали задачи" (response inspector) button now lives in the chat header instead, available whenever a task is running or has just finished.
+
 ## 1.9.0 - 2026-08-04
 
 - Reworked the Terminal drawer into a persistent live session instead of a one-shot command runner: it now stays open and running while you keep working elsewhere in the app, streams command output as it happens, and survives closing/reopening the drawer. Local sessions run through a plain shell (interrupt sends SIGINT to the whole process group); SSH sessions get a real remote PTY (via `ssh2`'s `shell()` for password auth, `ssh -tt` for key-based), so Ctrl+C behaves like a normal terminal there. A "Прервать" button stops the current command, "Завершить сессию" ends it, and a new session starts automatically the next time you open the drawer.

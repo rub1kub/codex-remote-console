@@ -1214,70 +1214,11 @@ html.theme-snap *::after {
 
 /* Task state and result */
 
-.command-studio .task-summary-card,
 .command-studio .task-status,
 .command-studio .queue-status {
   width: min(960px, calc(100% - 36px));
   margin-right: auto;
   margin-left: auto;
-}
-
-.command-studio .task-summary-card {
-  padding: 11px 13px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-1);
-  box-shadow: var(--shadow-control);
-}
-
-.command-studio .task-summary-head {
-  min-height: 24px;
-}
-
-.command-studio .task-summary-head > div:first-child {
-  color: var(--connected-accent);
-}
-
-.command-studio .task-summary-head strong {
-  color: var(--text-1);
-  font-size: 11px;
-  font-weight: 730;
-}
-
-.command-studio .task-summary-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 7px;
-}
-
-.command-studio .task-summary-grid span {
-  min-height: 23px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface-2);
-  color: var(--text-3);
-  font-size: 11px;
-  line-height: 21px;
-}
-
-.command-studio .task-summary-grid strong {
-  color: var(--text-2);
-}
-
-.command-studio .task-summary-files {
-  gap: 5px;
-  margin-top: 8px;
-}
-
-.command-studio .task-summary-files button {
-  min-height: 25px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface-2);
-  color: var(--ai-accent);
-  font-size: 11px;
 }
 
 .command-studio .task-status {
@@ -2528,7 +2469,6 @@ html.theme-snap *::after {
 
 /* Live values must not shift layout while they tick. */
 .command-studio .task-status-metrics span,
-.command-studio .task-summary-grid span,
 .command-studio .inspector-metrics strong,
 .command-studio .inspector-status time,
 .command-studio .thread-row small {
